@@ -1,0 +1,20 @@
+FFmpeg binary provenance
+========================
+
+Bundled version: FFmpeg 8.1.2 full_build
+Build distributor: Gyan Doshi / gyan.dev
+Upstream project: https://ffmpeg.org/
+Binary source page: https://www.gyan.dev/ffmpeg/builds/
+Installation source used for this repository:
+  WinGet package ID: Gyan.FFmpeg
+  Installed folder: ffmpeg-8.1.2-full_build
+Build configuration: GPL enabled, version 3 enabled, static Windows build.
+
+The files ffmpeg.exe and ffprobe.exe were copied together from the same
+Gyan full build. LICENSE-FFMPEG.txt is the license file distributed beside
+that exact build.
+
+Redistributors must review the license and corresponding-source obligations
+for the exact build they publish. If either executable is replaced, update
+this provenance file and the accompanying license at the same time. Do not
+assume that a different FFmpeg build has identical licensing terms.

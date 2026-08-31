@@ -1,0 +1,2 @@
+"""Ecranele fluxului aplicației."""
+

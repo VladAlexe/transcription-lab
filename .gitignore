@@ -1,0 +1,70 @@
+# ─── Python ────────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Build Flet / distributie ──────────────────────────────────────────
+build/
+dist/
+.flet/
+*.spec
+
+# ─── Secrete: cheia API nu se salveaza niciodata de aplicatie,
+#     dar blocam orice fisier care ar putea sa o contina ───────────────
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# ─── Date de cercetare: transcrieri, exporturi, inregistrari.
+#     NU se publica niciodata pe GitHub. ─────────────────────────────
+*.transcript.json
+*.docx
+~$*.docx
+temp_audio/
+transcriere/
+Inregistrari/
+
+# Fisiere audio / video sursa
+*.m4a
+*.wav
+*.mp3
+*.mp4
+*.aac
+*.flac
+*.webm
+*.mkv
+*.mov
+*.ogg
+*.opus
+*.wma
+
+# ─── Lansatoare locale (contin cai absolute de pe acest calculator) ────
+*.lnk
+Transcriere interviuri.bat
+
+# ─── Unelte si sisteme de operare ─────────────────────────────────────
+.idea/
+.vscode/
+*.log
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ─── Exceptii: acestea TREBUIE sa ajunga pe GitHub ────────────────────
+# FFmpeg livrat cu aplicatia (urmarit prin Git LFS, vezi .gitattributes)
+!assets/bin/windows/ffmpeg.exe
+!assets/bin/windows/ffprobe.exe
+!assets/bin/windows/LICENSE-FFMPEG.txt
+!assets/bin/windows/SOURCE-FFMPEG.txt
+!assets/icon.svg

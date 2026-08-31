@@ -1,0 +1,52 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Build Windows application
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = "1"
+          $env:PYTHONIOENCODING = "utf-8"
+          flet build windows --yes --no-rich-output --no-compile-app --no-compile-packages --exclude .venv build screenshots tests --project transcriere-interviuri --product "Transcriere interviuri" --description "Transcriere locală a interviurilor de grup" --org ro.transcriere
+      - name: Verify bundled FFmpeg resources
+        shell: pwsh
+        run: |
+          if (-not (Test-Path assets\bin\windows\ffmpeg.exe)) { throw "ffmpeg.exe lipsește" }
+          if (-not (Test-Path assets\bin\windows\ffprobe.exe)) { throw "ffprobe.exe lipsește" }
+          & assets\bin\windows\ffmpeg.exe -version | Select-Object -First 1
+          & assets\bin\windows\ffprobe.exe -version | Select-Object -First 1
+          if (-not (Get-ChildItem build\windows -Recurse -Filter ffmpeg.exe)) { throw "ffmpeg.exe nu a fost inclus în distribuție" }
+          if (-not (Get-ChildItem build\windows -Recurse -Filter ffprobe.exe)) { throw "ffprobe.exe nu a fost inclus în distribuție" }
+      - name: Archive distribution
+        shell: pwsh
+        run: Compress-Archive -Path build\windows\* -DestinationPath Transcriere-interviuri-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Transcriere-interviuri-Windows
+          path: Transcriere-interviuri-Windows.zip
+      - name: Create tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Transcriere-interviuri-Windows.zip

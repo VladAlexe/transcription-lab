@@ -1,0 +1,6 @@
+flet==0.86.1
+flet-cli==0.86.1
+flet-desktop==0.86.1
+openai>=1.57,<3
+python-docx>=1.1,<2
+websockets>=12,<17
