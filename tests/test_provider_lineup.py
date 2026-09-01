@@ -1,6 +1,6 @@
-"""Teste pentru lista de furnizori, capabilități și endpoint-ul generic.
+"""Tests for the provider lineup, the capability model and the generic endpoint.
 
-Toate cererile HTTP sunt simulate prin `providers.http.urlopen`; niciun API real nu este apelat.
+Every HTTP request is simulated through `providers.http.urlopen`; no real API is ever called.
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def _drain(request: object) -> None:
 
 
 def _router(routes: list[tuple[str, object]], calls: list[dict]):
-    """Răspunde în ordinea rutelor declarate, potrivind fragmente de URL."""
+    """Answers in the order the routes were declared, matching on fragments of the URL."""
     def handler(request, timeout=None):
         _drain(request)
         calls.append({"url": request.full_url, "method": request.method,
@@ -72,7 +72,7 @@ def _router(routes: list[tuple[str, object]], calls: list[dict]):
 
 
 def _init_no_sleep(provider, api_key, cancelled=None, *args, **kwargs) -> None:
-    """Constructor Gladia cu interogare instantanee, pentru ca testele să nu aștepte."""
+    """A Gladia provider that polls instantly, so the tests never wait."""
     provider.api_key = api_key; provider.cancelled = cancelled
     provider.poll_interval = 0; provider.poll_attempts = 5
     provider.retry_attempts = 2
@@ -132,7 +132,7 @@ class CapabilityTests(unittest.TestCase):
         self.assertTrue(state.effective_capabilities.global_speakers)
         state.settings.provider = "compatible"
         self.assertFalse(state.effective_capabilities.supports_diarization)
-        # Rezultatul real al unei rulări are prioritate față de declarație.
+        # What a run actually delivered takes precedence over what was declared.
         state.run_capabilities = ProviderCapabilities(supports_diarization=False, supports_word_timestamps=False)
         self.assertFalse(state.effective_capabilities.supports_word_timestamps)
 
@@ -150,7 +150,7 @@ class CapabilityTests(unittest.TestCase):
 class GladiaTests(_AudioCase):
     def run_provider(self, expected_speakers: int = 5):
         calls: list[dict] = []
-        # Rutele se potrivesc în ordine: cea de rezultat trebuie să preceadă cererea inițială.
+        # Routes match in order: the result route has to come before the initial request.
         routes = [("/upload", {"audio_url": "https://gladia/audio.m4a"}),
                   ("/result/abc", GLADIA_RESULT),
                   ("/pre-recorded", {"id": "abc", "result_url": "https://api.gladia.io/v2/result/abc"})]
@@ -232,7 +232,7 @@ class OpenAICompatibleTests(_AudioCase):
         self.assertEqual(len(segments), 2)
         self.assertEqual(segments[0].original_text, "Bună ziua.")
         self.assertEqual(segments[1].absolute_start, 4.0)
-        # Fără diarizare: un singur vorbitor implicit pentru tot transcriptul.
+        # No diarization: one default speaker for the whole transcript.
         self.assertEqual({item.speaker_id for item in segments}, {"Speaker 1"})
         self.assertTrue(provider.capabilities().supports_word_timestamps)
         self.assertFalse(provider.capabilities().supports_diarization)
@@ -246,7 +246,7 @@ class OpenAICompatibleTests(_AudioCase):
         self.assertEqual(segments[0].original_text, "Primul paragraf al discuției.")
         self.assertEqual({item.speaker_id for item in segments}, {"Speaker 1"})
         self.assertEqual([item.absolute_start for item in segments], [0.0, 0.0, 0.0])
-        # Capabilitatea se restrânge la realitate: nu au venit marcaje temporale.
+        # The capability narrows to reality: no timings came back.
         self.assertFalse(provider.capabilities().supports_word_timestamps)
 
     def test_plain_text_body_does_not_crash(self) -> None:
@@ -307,7 +307,7 @@ class ProvenanceTests(_AudioCase):
         controller.state.selected_file_metadata = AudioInfo(str(self.audio), self.audio.name,
                                                             self.audio.stat().st_size, 7837, "aac", 48000, 2, 148000)
         controller.state.gladia_api_key = "gl-key"
-        # Interogare instantanee, ca testul să nu aștepte între încercări.
+        # Poll instantly, so the test does not wait between attempts.
         with mock.patch("providers.http.urlopen", _router(routes, [])), \
              mock.patch.object(GladiaProvider, "__init__", _init_no_sleep):
             controller.start_transcription(lambda message, fraction: None)
@@ -329,14 +329,15 @@ class ProvenanceTests(_AudioCase):
     def test_loaded_project_describes_the_transcript_not_the_current_selection(self) -> None:
         from app_controller import AppController
         from document_export import project_payload
-        legacy = project_payload(None, [], [], {}, "2026-07-19T15:11:45+03:00")  # fără furnizor, ca fișierele vechi
+        legacy = project_payload(None, [], [], {}, "2026-07-19T15:11:45+03:00")  # no provider, as in the older files
         path = Path(self._temp.name) / "vechi.transcript.json"
         path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
 
         controller = AppController()
         controller.state.settings.provider = "gladia"  # furnizor global selectat acum
         controller.load_project(str(path))
-        # Transcriptul provine din calea fragmentată OpenAI: interfața nu are voie să promită vorbitori globali.
+        # The transcript came from the fragmented OpenAI path, so the interface must not
+        # promise global speakers.
         self.assertEqual(controller.state.transcription_provider, "openai")
         self.assertFalse(controller.state.effective_capabilities.global_speakers)
         self.assertTrue(feature_state(controller.state.effective_capabilities)["speaker_reconciliation"])

@@ -1,4 +1,4 @@
-"""Captură QA prin Edge DevTools; nu este necesar la rularea aplicației."""
+"""QA screenshot capture through Edge DevTools; not needed to run the application."""
 from __future__ import annotations
 import base64,json,sys,time,urllib.request
 from pathlib import Path

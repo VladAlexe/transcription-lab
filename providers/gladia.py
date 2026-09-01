@@ -1,11 +1,11 @@
-"""Furnizorul Gladia: transcriere Whisper plus diarizare pyannote, pe întreaga înregistrare.
+"""The Gladia provider: Whisper transcription plus pyannote diarization, whole recording.
 
-Spre deosebire de Deepgram, aici numărul de vorbitori este LEGAT efectiv: `diarization_config`
-primește `number_of_speakers`, `min_speakers` și `max_speakers`, iar pyannote respectă limitele.
-Când cercetătorul nu completează un număr, diarizarea rămâne complet automată.
+Unlike Deepgram, the speaker count here is genuinely BINDING: `diarization_config` takes
+`number_of_speakers`, `min_speakers` and `max_speakers`, and pyannote honours those limits.
+When the researcher gives no number, diarization stays fully automatic.
 
-Fluxul API-ului v2 are trei pași: încărcarea fișierului, cererea de transcriere și interogarea
-periodică a rezultatului.
+The v2 API has three steps: upload the file, request the transcription, then poll for the
+result.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ POLL_ATTEMPTS = 2160
 
 
 def diarization_config(expected_speakers: int) -> dict[str, Any]:
-    """Leagă efectiv numărul de vorbitori, spre deosebire de indiciul orientativ al Deepgram."""
+    """Genuinely binds the speaker count, where Deepgram only takes it as a hint."""
     if not expected_speakers or expected_speakers < 1: return {}
     count = int(expected_speakers)
     return {"number_of_speakers": count, "min_speakers": count, "max_speakers": count}
@@ -82,7 +82,7 @@ def parse_result(payload: dict[str, Any]) -> list[TranscriptSegment]:
 
 
 class GladiaProvider(TranscriptionProvider):
-    """Diarizare globală cu număr de vorbitori impus, când cercetătorul îl cunoaște."""
+    """Global diarization with the speaker count enforced, when the researcher knows it."""
 
     info = ProviderInfo(
         key="gladia",

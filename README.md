@@ -1,78 +1,117 @@
 # TranscriptionLab
 
-*Versiunea 1.1.0 · interfață în limba engleză, transcriere implicit în română.*
+*Version 1.1.1 · English interface, transcription in Romanian by default.*
 
-## Descărcare
+## Download
 
-- **Windows.** Descărcați `TranscriptionLab-Windows-v1.1.0.zip` din
-  [pagina Releases](../../releases/latest), dezarhivați-l oriunde și porniți
-  `TranscriptionLab.exe`. Nu există instalator și nu este nevoie de drepturi de
-  administrator. FFmpeg este inclus în arhivă; nu instalați nimic separat.
-- **Cheia API este a dumneavoastră.** Aplicația nu vine cu un cont de transcriere.
-  Alegeți furnizorul din **Settings** (Gladia, Soniox, Deepgram, OpenAI sau un endpoint
-  compatibil OpenAI), apoi introduceți cheia acelui furnizor la pasul **Transcription**.
-- **Confidențialitate, pe scurt.** Înregistrarea pleacă numai către furnizorul ales de
-  dumneavoastră, iar cheia rămâne exclusiv în memoria procesului: nu este salvată pe disc,
-  nu este jurnalizată și nu este exportată. Detalii în secțiunile de mai jos.
+- **Windows.** Download `TranscriptionLab-Windows-v1.1.1.zip` from the
+  [Releases page](../../releases/latest), unzip it anywhere and run
+  `TranscriptionLab.exe`. There is no installer and no need for administrator rights.
+  FFmpeg is included in the archive; nothing has to be installed separately.
+- **The API key is yours to bring.** The application does not come with a transcription
+  account. Choose your provider in **Settings** (Gladia, Soniox, Deepgram, OpenAI, or an
+  OpenAI-compatible endpoint), then enter that provider's key on the **Transcription** step.
+- **Privacy, in one line.** The recording goes only to the provider you chose, and the key
+  stays in the memory of the running process: it is never written to disk, never logged and
+  never exported. The sections below give the detail.
 
-Aplicație desktop Flet pentru Windows destinată cercetătorilor care transcriu interviuri de grup lungi. Înregistrarea este trimisă unui furnizor de transcriere ales din Setări, iar rezultatul poate fi revizuit și exportat în DOCX, TXT și JSON. Interfața este în engleză; limba transcrierii se alege separat și este implicit româna.
+A Flet desktop application for Windows, for researchers transcribing long group interviews.
+The recording is sent to a transcription provider chosen in Settings, and the result can be
+reviewed and exported to DOCX, TXT and JSON. The interface is in English; the language of
+the transcription is chosen separately and defaults to Romanian.
 
-## Ce face
+## What it does
 
-- **Cinci furnizori de transcriere**, comutabili din Setări: **Gladia** (implicit, Whisper + diarizare pyannote), **Soniox**, **Deepgram**, **OpenAI** `gpt-4o-transcribe-diarize` și orice **endpoint compatibil OpenAI** configurat de dumneavoastră.
-- **Vorbitori identificați global** pe toată înregistrarea la primii trei furnizori: aproximativ atâtea etichete câți participanți reali, în loc de zeci de etichete per fragment.
-- **Număr de vorbitori impus efectiv** la Gladia (`number_of_speakers` / `min_speakers` / `max_speakers`); orientativ la ceilalți.
-- **Capabilități declarate per furnizor**: interfața dezactivează ce nu poate fi livrat și spune într-o singură frază la ce să vă așteptați.
-- **Transcriere pe interval**: opțional, numai o porțiune din înregistrare, cu marcaje temporale raportate la originalul complet.
-- **Marcaje pe cuvinte și scor de încredere**, unde furnizorul le oferă.
-- **Proveniență completă** în proiectul salvat: furnizorul, modelul și intervalul transcris.
-- **BYOK**: câte o cheie per furnizor, exclusiv în memoria procesului.
+- **Five transcription providers**, switchable in Settings: **Gladia** (the default,
+  Whisper plus pyannote diarization), **Soniox**, **Deepgram**, **OpenAI**
+  `gpt-4o-transcribe-diarize`, and any **OpenAI-compatible endpoint** you configure.
+- **Speakers identified globally** across the whole recording with the first three
+  providers: roughly as many labels as there were real participants, instead of dozens of
+  labels per fragment.
+- **A speaker count that genuinely binds** with Gladia (`number_of_speakers` /
+  `min_speakers` / `max_speakers`); advisory with the others.
+- **Capabilities declared per provider**: the interface disables what cannot be delivered
+  and says in one sentence what to expect.
+- **Transcribe a time range**: optionally only a portion of the recording, with timestamps
+  still reported against the full original.
+- **Word-level timings and confidence scores**, where the provider offers them.
+- **Review tools**: global find and replace, reassigning a turn to another speaker, merging
+  two speaker labels into one person, per-turn checked marks with a progress bar, a
+  "show only unchecked" filter, and Resume, which reopens the project where you stopped.
+- **Full provenance** in the saved project: the provider, the model and the range transcribed.
+- **BYOK**: one key per provider, in process memory only.
 
-## Furnizori și ce părăsește calculatorul
+## Providers, and what leaves the computer
 
-Fiecare furnizor primește date diferite. Alegerea se face din **Setări → Transcriere**, iar aplicația afișează aceeași informație și în interfață, înaintea pornirii transcrierii.
+Each provider receives different data. The choice is made in **Settings → Transcription**,
+and the application shows the same information in the interface before transcription starts.
 
-| Furnizor | Ce este trimis | Vorbitori | Marcaje pe cuvinte | Încredere |
+| Provider | What is sent | Speakers | Word timings | Confidence |
 |---|---|---|---|---|
-| **Gladia** (implicit) | o copie a **întregii** înregistrări | globali, numărul estimat este **impus** diarizării pyannote | da | da |
-| **Soniox** | o copie a **întregii** înregistrări | globali, numărul estimat este orientativ | da | da |
-| **Deepgram** | o copie a **întregii** înregistrări | globali, numărul estimat este orientativ | da | da |
-| **OpenAI** `gpt-4o-transcribe-diarize` | **numai fragmentele temporare** create cu FFmpeg | separați pentru fiecare fragment, necesită reconciliere manuală | nu | nu |
-| **Endpoint compatibil OpenAI** (propriu) | o copie a **întregii** înregistrări, către adresa configurată de dumneavoastră | niciunul: delimitarea și denumirea vorbitorilor sunt manuale | doar dacă serverul returnează segmente | nu |
+| **Gladia** (default) | a copy of the **whole** recording | global; the expected count is **enforced** on pyannote diarization | yes | yes |
+| **Soniox** | a copy of the **whole** recording | global; the expected count is advisory | yes | yes |
+| **Deepgram** | a copy of the **whole** recording | global; the expected count is advisory | yes | yes |
+| **OpenAI** `gpt-4o-transcribe-diarize` | **only the temporary fragments** created with FFmpeg | separate for each fragment, needs manual reconciliation | no | no |
+| **OpenAI-compatible endpoint** (your own) | a copy of the **whole** recording, to the address you configured | none: splitting and naming speakers is manual | only if the server returns segments | no |
 
-Numai calea OpenAI fragmentează local înregistrarea. Toți ceilalți furnizori primesc o copie completă a fișierului; dacă acest lucru nu este acceptabil pentru datele dumneavoastră de cercetare, folosiți furnizorul OpenAI sau un endpoint compatibil găzduit de instituția dumneavoastră.
+Only the OpenAI path fragments the recording locally. Every other provider receives a
+complete copy of the file; if that is not acceptable for your research data, use the OpenAI
+provider or a compatible endpoint hosted by your own institution.
 
-## Confidențialitate
+## Privacy
 
-- Fișierul original rămâne pe calculator și nu este modificat.
-- Aplicația nu încarcă în memorie întreaga înregistrare: încărcarea se face în flux.
-- Cheile API rămân exclusiv în memoria procesului: nu sunt salvate, jurnalizate sau exportate. Fiecare furnizor are propria cheie.
-- Pentru endpoint-ul compatibil OpenAI, adresa și numele modelului rămân de asemenea doar în memorie.
-- Fișierele temporare sunt șterse la resetare și la închiderea normală.
-- Calea absolută a sursei este exclusă implicit din exportul JSON; poate fi activată din Setări.
-- Proiectul salvat înregistrează furnizorul și modelul folosite efectiv (`transcription_provider`, `transcription_model`), pentru reproductibilitate.
+- The original file stays on the computer and is never modified.
+- The application does not load the whole recording into memory: uploads are streamed.
+- API keys stay in the memory of the running process: never saved, logged or exported. Each
+  provider has its own key.
+- For the OpenAI-compatible endpoint, the address and the model name likewise stay in memory only.
+- Temporary files are deleted on reset and on a normal shutdown.
+- The absolute path of the source is excluded from the JSON export by default; it can be
+  enabled in Settings.
+- The saved project records the provider and model actually used
+  (`transcription_provider`, `transcription_model`), for reproducibility.
 
-Fiecare utilizator își furnizează propria cheie și activează facturarea la furnizorul ales. Pentru OpenAI, ChatGPT Plus și facturarea API sunt servicii separate: abonamentul nu include credit API.
+Every user supplies their own key and enables billing with the provider they chose. For
+OpenAI, ChatGPT Plus and API billing are separate services: the subscription does not
+include API credit.
 
-## Formate acceptate
+## Supported formats
 
-M4A, WAV, MP3, MP4, AAC, FLAC și WEBM. Fragmentarea descrisă mai jos se aplică numai furnizorului OpenAI; ceilalți primesc fișierul așa cum este. Pentru sursele comprimate se încearcă segmentarea fără recodare. Dacă aceasta nu este sigură sau pentru WAV, aplicația encodează direct fragmente AAC mono, 16 kHz, 48 kbps, fără un WAV intermediar complet.
+M4A, WAV, MP3, MP4, AAC, FLAC and WEBM. The fragmenting described below applies only to the
+OpenAI provider; the others receive the file as it is. For compressed sources the
+application tries to segment without re-encoding. Where that is not safe, and for WAV, it
+encodes AAC fragments directly at mono, 16 kHz, 48 kbps, with no full intermediate WAV.
 
-## FFmpeg inclus și instalare din sursă
+## FFmpeg, and running from source
 
-Arhiva de pe Releases include `ffmpeg.exe` și `ffprobe.exe` în `assets\bin\windows`, astfel încât utilizatorii nu trebuie să instaleze FFmpeg separat. Aplicația validează binarele și caută, în ordine: resurse bundled, locații relative executabilului, `PATH`, instalări WinGet și folderul ales de utilizator.
+The archive on the Releases page includes `ffmpeg.exe` and `ffprobe.exe` under
+`assets\bin\windows`, so users do not have to install FFmpeg separately. The application
+validates the pair and looks, in order: bundled resources, locations relative to the
+executable, `PATH`, WinGet installations, and a folder the user selects.
 
-**Binarele nu sunt urcate în depozit.** Sunt ~194 MB și se schimbă doar când se schimbă versiunea fixată, așa că sunt descărcate de `tools_fetch_ffmpeg.py` — acel fișier este singurul loc unde versiunea și adresa sunt declarate. Fluxul de build din CI îl rulează înainte de fiecare compilare; la o clonă nouă, rulați-l o dată dumneavoastră.
+**The binaries are not committed to this repository.** They are about 194 MB and change only
+when the pinned version changes, so they are downloaded by `tools_fetch_ffmpeg.py` — that
+file is the single place the version and the URL are declared. The CI workflow runs it
+before every build; after a fresh clone, run it once yourself.
 
-Build-ul distribuit este FFmpeg 8.1.2 `essentials_build` de la gyan.dev. Aplicația folosește exact trei lucruri: `ffprobe` pentru metadate, codorul AAC nativ pentru copia compactă de încărcare și pentru decupajele pe interval, și muxer-ul MP4/M4A. Toate există în `essentials`; `full_build` adaugă biblioteci externe pe care aplicația nu le apelează, contra 268 MB descărcați în plus. Proveniența este în `SOURCE-FFMPEG.txt`, iar licența build-ului este descărcată alături de binare în `LICENSE-FFMPEG.txt`. Acest build are GPLv3 activat. Oricine redistribuie aplicația trebuie să respecte licența și obligațiile privind codul-sursă corespunzător ale build-ului exact distribuit. Înlocuirea binarelor impune actualizarea simultană a documentelor de proveniență și licență.
+The build shipped is FFmpeg 8.1.2 `essentials_build` from gyan.dev. The application uses
+exactly three things: `ffprobe` for stream metadata, the native AAC encoder for its compact
+upload copy and its range cuts, and the MP4/M4A muxer. The essentials build carries all of
+them; the full build adds external libraries this application never calls, for 268 MB of
+extra download. Provenance is in `SOURCE-FFMPEG.txt`, and the licence for that build is
+downloaded alongside the binaries as `LICENSE-FFMPEG.txt`. This build has GPLv3 enabled.
+Anyone redistributing the application must comply with the licence and the corresponding
+source obligations of the exact build they publish. Replacing either binary means updating
+the provenance file and `tools_fetch_ffmpeg.py` at the same time.
 
-Cerințe pentru dezvoltare: Windows 10/11, Python 3.10–3.13 și o cheie pentru cel puțin unul dintre furnizorii din tabelul de mai sus. Alternativ, FFmpeg poate fi instalat în sistem cu:
+Development requirements: Windows 10/11, Python 3.10–3.13, and a key for at least one of the
+providers in the table above. FFmpeg can also be installed system-wide with:
 
 ```powershell
 winget install --id Gyan.FFmpeg -e
 ```
 
-Din directorul proiectului:
+From the project directory:
 
 ```powershell
 py -m venv .venv
@@ -83,51 +122,78 @@ python tools_fetch_ffmpeg.py
 flet run main.py
 ```
 
-Dacă activarea mediului este blocată:
+If activating the environment is blocked:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 ```
 
-## Utilizare
+## Using it
 
-1. În **Recording**, selectați fișierul prin dialogul nativ și verificați metadatele. Opțional, completați **Start** și **End** (`mm:ss` sau `hh:mm:ss`) pentru a transcrie numai o porțiune; lăsate goale, se transcrie tot fișierul.
-2. În **Transcription**, introduceți cheia furnizorului selectat și porniți procesarea. Ecranul afișează ce livrează furnizorul ales. Anularea oprește încărcarea sau lansarea următorului apel API, fără a întrerupe brutal cererea curentă.
-3. În **Speakers**, atribuiți nume finale etichetelor și deschideți editorul unei intervenții pentru corecturi.
-4. În **Export**, completați metadatele și salvați Word, TXT sau JSON prin dialogurile Windows.
+1. In **Recording**, select the file through the native dialog and check the metadata.
+   Optionally fill in **Start** and **End** (`mm:ss` or `hh:mm:ss`) to transcribe only a
+   portion; left empty, the whole file is transcribed.
+2. In **Transcription**, enter the key for the selected provider and start processing. The
+   screen states what the chosen provider delivers. Cancelling stops the upload or the next
+   API call rather than tearing down the request in flight.
+3. In **Speakers**, give the labels their real names and open a turn to correct it. This is
+   also where find and replace, reassigning a turn, merging two speakers and the review
+   progress tools live.
+4. In **Export**, fill in the metadata and save Word, TXT or JSON through the Windows dialogs.
 
-Cu furnizorii care diarizează global (Gladia, Soniox, Deepgram) veți avea aproximativ atâtea etichete câți participanți reali există, iar munca se rezumă la atribuirea numelor.
+With the providers that diarize globally (Gladia, Soniox, Deepgram) you will have roughly as
+many labels as there were real participants, and the work comes down to naming them.
 
-Pe calea **OpenAI**, etichetele diarizate sunt create independent pentru fiecare fragment: `Speaker 1` dintr-un fragment nu este presupus automat aceeași persoană cu `Speaker 1` din alt fragment, iar reconcilierea manuală este obligatorie.
+On the **OpenAI** path, diarized labels are created independently for each fragment:
+`Speaker 1` in one fragment is not assumed to be the same person as `Speaker 1` in another,
+and manual reconciliation is unavoidable.
 
-Pe **endpoint-ul compatibil OpenAI** nu există deloc etichete de vorbitor: tot textul primește un singur vorbitor implicit, iar delimitarea participanților rămâne integral manuală.
+On the **OpenAI-compatible endpoint** there are no speaker labels at all: all the text gets a
+single default speaker, and separating the participants is entirely manual.
 
-Butonul de redare creează la cerere un clip temporar scurt, cu aproximativ o secundă de context. Dacă sursa nu mai există, proiectul se deschide în continuare, însă redarea audio este indisponibilă.
+The player loads the recording once and seeks within it, so playback starts on the exact
+timestamp of a turn. If the source file is missing, the project still opens — the transcript,
+speakers and corrections all load, and a banner offers to locate the recording so playback
+can be restored.
 
-## Transcrierea unui interval
+## Transcribing a time range
 
-Câmpurile **Start** și **End** de pe ecranul Recording acceptă `mm:ss` sau `hh:mm:ss`. Start gol înseamnă începutul fișierului, End gol înseamnă sfârșitul lui. Aplicația validează ordinea și încadrarea în durata reală și refuză intervalele imposibile cu un mesaj inline.
+The **Start** and **End** fields on the Recording screen accept `mm:ss` or `hh:mm:ss`. An
+empty Start means the beginning of the file, an empty End means its end. The application
+validates the order and that both fall inside the real duration, and refuses impossible
+ranges with an inline message.
 
-Când un interval este setat, FFmpeg extrage local un sub-clip și **numai acel clip** este trimis furnizorului: diarizarea și costul se aplică intervalului, nu întregii înregistrări. Marcajele temporale din transcript rămân raportate la **poziția reală în înregistrarea originală**, nu repornesc de la zero. Intervalul ales este salvat în proiect ca `transcription_range_start` și `transcription_range_end`, ca să puteți raporta exact ce porțiune a fost transcrisă.
+When a range is set, FFmpeg extracts a sub-clip locally and **only that clip** is sent to the
+provider: diarization and cost apply to the range, not to the whole recording. Timestamps in
+the transcript are still reported against the **real position in the original recording**;
+they do not restart from zero. The chosen range is saved in the project as
+`transcription_range_start` and `transcription_range_end`, so you can report exactly which
+portion was transcribed.
 
-## Salvarea proiectelor
+## Saving projects
 
-**Save project** creează un fișier `.transcript.json` care include transcriptul original, corecțiile, etichetele, maparea vorbitorilor, timpii, intervalul transcris, furnizorul și modelul folosite, dar niciodată cheia API. **Open project** permite continuarea revizuirii și exportului fără retranscriere.
+**Save project** creates a `.transcript.json` file holding the original transcript, the
+corrections, the labels, the speaker mapping, the timings, the range transcribed, the
+provider and model used, the per-turn checked marks and where the review stopped — but never
+the API key. **Open project** lets you carry on reviewing and exporting without transcribing
+again, and Resume returns you to the turn you left off at.
 
-Fișierele locale `.transcript.json` sunt ignorate implicit de Git pentru a evita publicarea accidentală a datelor de cercetare.
+Local `.transcript.json` files are ignored by Git by default, to avoid publishing research
+data by accident.
 
-## Teste
+## Tests
 
 ```powershell
 python -m unittest discover -v
 ```
 
-Niciun test nu contactează un API real: toate cererile HTTP sunt simulate.
+No test contacts a real API: every HTTP request is simulated.
 
-## Construire Windows
+## Building for Windows
 
-Versiunea verificată în acest proiect este Flet 0.86.1. Înaintea unui build, verificați mediul și opțiunile CLI instalate:
+The version verified in this project is Flet 0.86.1. Before a build, check the environment
+and the CLI options installed:
 
 ```powershell
 flet --version
@@ -135,45 +201,62 @@ flet doctor
 flet build --help
 ```
 
-Build local confirmat de interfața CLI:
+The build itself needs the Visual Studio "Desktop development with C++" workload and
+Developer Mode enabled, because `flet build windows` drives a Flutter Windows build that
+uses plugin symlinks. The release workflow runs on `windows-latest`, which has both.
 
 ```powershell
-flet build windows --yes --project transcriptionlab --product "TranscriptionLab" --description "Transcribe and review long group interviews" --org org.transcriptionlab --company "TranscriptionLab" --build-version 1.1.0
+python tools_fetch_ffmpeg.py
+flet build windows --yes --project transcriptionlab --product "TranscriptionLab" --description "Transcribe and review long group interviews" --org org.transcriptionlab --company "TranscriptionLab" --build-version 1.1.1
 ```
 
-Distribuția este creată în `build\windows`. Flet include directorul `assets` în aplicație, inclusiv perechea FFmpeg documentată. Verificați înaintea publicării că `assets\bin\windows\ffmpeg.exe`, `ffprobe.exe`, licența și proveniența apar în distribuție.
+The distribution is created in `build\windows`. Flet packages the `assets` directory into the
+application, including the FFmpeg pair fetched above. Before publishing, confirm that
+`ffmpeg.exe`, `ffprobe.exe`, the licence and the provenance file appear in the distribution —
+the workflow checks all four.
 
-Pictograma aplicației este `assets\icon.svg` (sursa editabilă) și `assets\icon.png` (1024×1024, folosită de `flet build`). După orice modificare a formei SVG, regenerați PNG-ul:
+Pass `--exclude` for anything that must not be packaged. In particular `.git` and `.flet`:
+without them excluded, the entire repository history ends up inside the shipped application.
+
+The application icon is `assets\icon.svg` (the editable source), `assets\icon.png`
+(1024×1024), `assets\icon_windows.png` (what `flet build` uses for the Windows executable)
+and `assets\icon.ico` (applied to the live window at runtime). After changing the SVG,
+regenerate the raster files:
 
 ```powershell
 python tools_make_icon.py
 ```
 
-Binarele mari sunt configurate pentru Git LFS. Instalați Git LFS înainte de clonare/publicare și asigurați-vă că workflow-ul descarcă obiectele LFS:
+## GitHub Actions and Releases
+
+`.github/workflows/windows-build.yml` builds the application on Windows, archives
+`build\windows` and publishes the archive as an artifact. For `v*` tags it also creates a
+GitHub Release and attaches the archive. The workflow runs the tests first, fetches FFmpeg,
+and verifies the version, the icons and the contents of the distribution. It refuses to build
+if the tag disagrees with `document_export.APP_VERSION`. No API key is needed or entered
+anywhere in GitHub Actions.
+
+Tagging a release:
 
 ```powershell
-git lfs install
-git lfs pull
+git tag -a v1.1.1 -m "TranscriptionLab 1.1.1"
+git push origin v1.1.1
 ```
 
-## GitHub Actions și Releases
+## Troubleshooting
 
-Workflow-ul `.github/workflows/windows-build.yml` construiește aplicația pe Windows, arhivează `build\windows` și publică arhiva drept artifact. Pentru tag-uri `v*`, workflow-ul creează și un GitHub Release și atașează arhiva. Workflow-ul rulează întâi testele și verifică prezența pictogramei și a binarelor FFmpeg. Nicio cheie API nu este necesară sau introdusă în GitHub Actions.
-
-Exemplu de tag:
-
-```powershell
-git tag v1.1.0
-git push origin v1.1.0
-```
-
-## Depanare
-
-- **FFmpeg lipsește:** verificați mai întâi fișierele bundled/LFS; apoi selectați un folder care conține ambele executabile sau instalați alternativ cu `winget install --id Gyan.FFmpeg -e`.
-- **Cheie invalidă:** verificați cheia și permisiunile contului la furnizorul selectat. Fiecare furnizor are propriul câmp de cheie.
-- **Endpoint compatibil inaccesibil:** verificați adresa de bază (fără `/audio/transcriptions`) și numele modelului.
-- **Cotă sau credit insuficient:** activați facturarea API; abonamentul ChatGPT nu rezolvă această eroare.
-- **Fragment prea mare:** reduceți limita sigură din Setări.
-- **Sursa lipsește după redeschiderea proiectului:** textul și exportul funcționează, însă previzualizarea audio nu.
-- **Etichete diferite între fragmente:** apare numai pe calea OpenAI; reconciliați-le în ecranul Speakers sau alegeți un furnizor cu diarizare globală.
-- **Interval respins:** verificați formatul (`mm:ss` sau `hh:mm:ss`), ordinea Start < End și încadrarea în durata fișierului.
+- **FFmpeg is missing:** run `python tools_fetch_ffmpeg.py`; otherwise select a folder
+  containing both executables, or install it with `winget install --id Gyan.FFmpeg -e`.
+- **Invalid key:** check the key and the account permissions with the selected provider.
+  Each provider has its own key field.
+- **Compatible endpoint unreachable:** check the base address (without
+  `/audio/transcriptions`) and the model name.
+- **Quota or credit exhausted:** enable API billing; a ChatGPT subscription does not resolve
+  this error.
+- **Fragment too large:** lower the safe limit in Settings.
+- **The source is missing after reopening a project:** the text and the export still work;
+  use the banner to locate the recording and restore playback.
+- **Labels differ between fragments:** this happens only on the OpenAI path. Reconcile them
+  on the Speakers screen, or choose a provider with global diarization.
+- **Range rejected:** check the format (`mm:ss` or `hh:mm:ss`), that Start comes before End,
+  and that both fall inside the file's duration.

@@ -93,11 +93,15 @@ class DesktopApp:
             state.current_workflow_step=1;state.processing=True;state.transcription_progress=.47;state.generated_chunks=[]
             state.activity_log=["File analysed.","Uploading the recording: 64%.","The provider is processing the recording."]
         if screen in {"speakers","export"}:
-            names=["Bună ziua și vă mulțumesc că participați la discuție.","Cred că problema apare mai ales atunci când informațiile ajung prea târziu.",
-                "Pentru echipa noastră, comunicarea directă a făcut diferența.","Aș adăuga că experiența diferă mult de la un participant la altul."]
-            state.transcript_segments=[TranscriptSegment(0,0,str(i%3),f"Vorbitor {i%3+1}",i*18,i*18+14,i*18,i*18+14,text)
+            # Screenshot fixture. English because the screenshots are published; a real
+            # transcript is in whatever language the interview was, which is a data setting.
+            names=["Good afternoon, and thank you all for taking part in this discussion.",
+                "I think the problem shows up mainly when the information arrives too late.",
+                "For our team, talking to each other directly is what made the difference.",
+                "I would add that the experience differs a great deal from one participant to another."]
+            state.transcript_segments=[TranscriptSegment(0,0,str(i%3),f"Speaker {i%3+1}",i*18,i*18+14,i*18,i*18+14,text)
                 for i,text in enumerate(names*8)]
-            state.speaker_mapping={"Vorbitor 1":"Moderator","Vorbitor 2":"Vorbitor 2","Vorbitor 3":"Vorbitor 3"}
+            state.speaker_mapping={"Speaker 1":"Moderator","Speaker 2":"Speaker 2","Speaker 3":"Speaker 3"}
             state.current_workflow_step=2 if screen=="speakers" else 3;state.generated_at="2026-07-19T12:00:00+03:00"
 
     def configure_page(self)->None:

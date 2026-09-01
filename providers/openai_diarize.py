@@ -1,10 +1,10 @@
 """Furnizorul OpenAI `gpt-4o-transcribe-diarize`.
 
-Logica a fost mutată aici din `transcription.py`, care rămâne un shim de compatibilitate.
-Acest furnizor fragmentează înregistrarea pentru a respecta limita de dimensiune a API-ului,
-iar diarizarea este realizată independent pentru fiecare fragment: etichetele rezultate sunt
-`Fragment NN · Speaker X` și NU sunt globale. Reconcilierea manuală rămâne obligatorie pe
-această cale; vezi `providers/deepgram.py` pentru varianta cu vorbitori globali.
+The logic moved here from `transcription.py`, which remains a compatibility shim. This
+provider fragments the recording to stay under the API's size limit, and diarization is
+done independently for each fragment: the resulting labels are `Fragment NN · Speaker X`
+and are NOT global. Manual reconciliation is unavoidable on this path; see
+`providers/deepgram.py` for the global-speaker alternative.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ PREPARATION_SHARE = .35
 
 
 class TranscriptionError(ProviderError):
-    """Păstrată sub numele istoric, reexportată de `transcription.py`."""
+    """Kept under its historical name, re-exported by `transcription.py`."""
 
 
 def _value(obj: Any, key: str, default: Any = None) -> Any:
@@ -85,8 +85,8 @@ def transcribe_chunk(api_key: str, chunk: AudioChunk, attempts: int = 3,
 def transcribe_chunks(api_key: str, chunks: list[AudioChunk], progress: Callable[[int, int, str], None] | None = None,
                       cancelled: CancelCallback | None = None,
                       chunk_transcriber: Callable[..., list[TranscriptSegment]] | None = None) -> list[TranscriptSegment]:
-    # `chunk_transcriber` este punctul de injecție folosit atât de shim-ul `transcription.py`
-    # (pentru monkeypatching în teste) cât și pentru a fixa limba cerută de furnizor.
+    # `chunk_transcriber` is the injection point used both by the `transcription.py` shim
+    # (for monkeypatching in tests) and to fix the language asked of the provider.
     transcriber = chunk_transcriber or transcribe_chunk
     result: list[TranscriptSegment] = []
     for pos, chunk in enumerate(chunks, 1):
@@ -97,7 +97,7 @@ def transcribe_chunks(api_key: str, chunks: list[AudioChunk], progress: Callable
 
 
 class OpenAIDiarizeProvider(TranscriptionProvider):
-    """Calea istorică: fragmentare locală cu FFmpeg, apoi câte o cerere pentru fiecare fragment."""
+    """The historical path: fragment locally with FFmpeg, then one request per fragment."""
 
     info = ProviderInfo(
         key="openai",
@@ -117,12 +117,12 @@ class OpenAIDiarizeProvider(TranscriptionProvider):
         self.api_key = api_key; self.output_dir = output_dir; self.media_tools = media_tools
         self.safe_chunk_mb = safe_chunk_mb; self.fallback_bitrate_kbps = fallback_bitrate_kbps
         self.overlap_seconds = overlap_seconds; self.force_encode = force_encode; self.cancelled = cancelled
-        # Fragmentele create în timpul rulării; controllerul le preia pentru starea proiectului.
+        # The fragments created during the run; the controller takes them for project state.
         self.chunks: list[AudioChunk] = []
 
     def transcribe(self, audio_path: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0,
                    progress_cb: ProgressCallback | None = None) -> list[TranscriptSegment]:
-        # `expected_speakers` nu este acceptat de gpt-4o-transcribe-diarize; rămâne pur informativ.
+        # `expected_speakers` is not accepted by gpt-4o-transcribe-diarize; purely informational.
         if not self.api_key.strip(): raise TranscriptionError(self.info.missing_key)
         info = probe_audio(audio_path, self.media_tools)
 

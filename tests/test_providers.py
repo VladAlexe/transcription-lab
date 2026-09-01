@@ -1,6 +1,6 @@
-"""Teste pentru stratul de furnizori și pentru compatibilitatea proiectelor salvate.
+"""Tests for the provider layer and for the compatibility of saved projects.
 
-Niciun test nu contactează un API real: cererile HTTP sunt înlocuite cu răspunsuri simulate.
+No test contacts a real API: the HTTP requests are replaced with simulated responses.
 """
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ from providers.base import ProviderError, TranscriptionProvider
 from providers.deepgram import DeepgramProvider, parse_response
 from providers.openai_diarize import OpenAIDiarizeProvider
 
-# Doi vorbitori, fiecare revenind la finalul înregistrării: dovada că numerotarea este globală.
+# Two speakers, each returning at the end of the recording: the proof that the numbering
+# is global rather than per fragment.
 DEEPGRAM_PAYLOAD = {
     "metadata": {"duration": 7837.5},
     "results": {"utterances": [
@@ -47,7 +48,7 @@ class _FakeResponse:
 
 
 def _drain(request: object) -> None:
-    """Consumă corpul cererii exact cum ar face http.client, ca progresul încărcării să fie raportat."""
+    """Consume the request body exactly as http.client would, so upload progress is reported."""
     body = getattr(request, "data", None)
     if hasattr(body, "read"):
         while body.read(8192): pass
@@ -85,7 +86,7 @@ class DeepgramProviderTests(unittest.TestCase):
         segments, _ = self.transcribe()
         self.assertEqual(len(segments), 3)
         self.assertEqual({item.speaker_id for item in segments}, {"Speaker 1", "Speaker 2"})
-        # Prima și ultima intervenție aparțin aceleiași persoane, la peste două ore distanță.
+        # The first and last turns belong to the same person, over two hours apart.
         self.assertEqual(segments[0].speaker_id, segments[-1].speaker_id)
         self.assertNotIn("Fragment", segments[0].speaker_id)
 
@@ -191,7 +192,7 @@ class ProviderInterfaceTests(unittest.TestCase):
         self.assertEqual(provider.chunks, [])
 
 
-# Setul EXACT de chei scris de versiunile anterioare, înainte de `words` / `confidence`.
+# The EXACT set of keys written by earlier versions, before `words` / `confidence`.
 OLD_SEGMENT = {"chunk_index": 2, "chunk_start_offset": 100.0, "original_speaker": "A",
                "speaker_id": "Fragment 02 · Speaker A", "local_start": 3.5, "local_end": 8.0,
                "absolute_start": 103.5, "absolute_end": 108.0, "original_text": "Text vechi",

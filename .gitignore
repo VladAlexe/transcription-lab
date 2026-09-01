@@ -9,14 +9,14 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# ─── Build Flet / distributie ──────────────────────────────────────────
+# ─── Flet build and distribution ───────────────────────────────────────
 build/
 dist/
 .flet/
 *.spec
 
-# ─── Secrete: cheia API nu se salveaza niciodata de aplicatie,
-#     dar blocam orice fisier care ar putea sa o contina ───────────────
+# ─── Secrets. The application never saves an API key, but block anything
+#     that could end up holding one anyway. ───────────────────────────
 .env
 .env.*
 *.key
@@ -24,16 +24,16 @@ dist/
 secrets.json
 credentials.json
 
-# ─── Date de cercetare: transcrieri, exporturi, inregistrari.
-#     NU se publica niciodata pe GitHub. ─────────────────────────────
+# ─── Research data: transcripts, exports, recordings.
+#     These must NEVER be published to GitHub. ────────────────────────
 *.transcript.json
 *.docx
 ~$*.docx
 temp_audio/
-transcriere/
-Inregistrari/
+transcripts/
+Recordings/
 
-# Fisiere audio / video sursa
+# Source audio and video files
 *.m4a
 *.wav
 *.mp3
@@ -47,11 +47,11 @@ Inregistrari/
 *.opus
 *.wma
 
-# ─── Lansatoare locale (contin cai absolute de pe acest calculator) ────
+# ─── Local shortcuts: they hold absolute paths from one machine ────────
 *.lnk
-Transcriere interviuri.bat
+*.bat
 
-# ─── Unelte si sisteme de operare ─────────────────────────────────────
+# ─── Editors and operating systems ─────────────────────────────────────
 .idea/
 .vscode/
 *.log
@@ -61,8 +61,7 @@ Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# ─── Exceptii: acestea TREBUIE sa ajunga pe GitHub ────────────────────
-# FFmpeg livrat cu aplicatia (urmarit prin Git LFS, vezi .gitattributes)
+# ─── Exceptions: these MUST reach GitHub ──────────────────────────────
 !assets/bin/windows/SOURCE-FFMPEG.txt
 !assets/icon.svg
 

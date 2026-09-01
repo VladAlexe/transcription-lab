@@ -89,13 +89,15 @@ class AppController:
             self.state.cleanup_temporary(); self.state.temporary_directory=tempfile.TemporaryDirectory(prefix="transcriere_")
             info=self.state.selected_file_metadata; settings=self.state.settings
             provider=self.build_provider(self.state.temporary_directory.name)
-            # Numai porțiunea aleasă este trimisă furnizorului; originalul rămâne neatins.
+            # Only the chosen portion is sent to the provider; the original is untouched.
             source_path,offset=self.prepare_source(info,self.state.temporary_directory.name,update,
                 provider.info.uploads_whole_file)
             segments=provider.transcribe(source_path,settings.language,settings.expected_speakers,update)
-            # Timpii primiți sunt relativi la clip: îi reancorăm pe înregistrarea originală.
+            # The times that come back are relative to the clip, so they are re-anchored
+            # onto the original recording.
             shift_segments(segments,offset)
-            # Furnizorii care fragmentează local raportează fragmentele; cei care trimit fișierul întreg nu au niciunul.
+            # Providers that fragment locally report their fragments; those that send the
+            # whole file have none.
             self.state.generated_chunks=list(getattr(provider,"chunks",[]))
             self.state.chunk_metadata=[x.to_dict() for x in self.state.generated_chunks]
             self.state.transcript_segments=segments; self.state.speaker_mapping=initialize_mapping(segments)
@@ -201,7 +203,7 @@ class AppController:
     def save_export(self,kind:str,path:str)->None:
         info=self.state.selected_file_metadata
         if not info: raise RuntimeError(s.ERROR_METADATA_MISSING)
-        meta=self.state.export_metadata; md={"Identificator proiect":meta.project_id,"Data interviului":meta.interview_date,"Observații":meta.notes}
+        meta=self.state.export_metadata; md={s.DOC_PROJECT_ID:meta.project_id,s.DOC_INTERVIEW_DATE:meta.interview_date,s.DOC_NOTES:meta.notes}
         if kind=="docx": write_bytes(path,make_docx(info,self.state.transcript_segments,self.state.speaker_mapping,self.state.generated_at,
             meta.title,md,meta.include_timestamps,meta.include_notice,self.state.transcription_model))
         elif kind=="txt": write_text(path,readable_transcript(self.state.transcript_segments,self.state.speaker_mapping,meta.include_timestamps))
@@ -234,7 +236,7 @@ class AppController:
         self.state.cleanup_temporary(); self.state.selected_file_metadata=info; self.state.selected_file_path=info.path if info else None
         self.state.generated_chunks=chunks; self.state.chunk_metadata=data.get("chunks",[]); self.state.transcript_segments=segments
         self.state.speaker_mapping=data.get("speaker_mapping",{}); self.state.generated_at=data.get("generation_date","")
-        # Proiectele mai vechi nu conțin furnizorul; modelul salvat rămâne singura indicație.
+        # Older projects carry no provider; the saved model is the only clue left.
         def optional_number(value:Any)->float|None:
             try: return None if value is None else float(value)
             except (TypeError,ValueError): return None
@@ -245,7 +247,8 @@ class AppController:
         if not recorded and self.state.transcription_model==OpenAIDiarizeProvider.info.model:
             recorded=OpenAIDiarizeProvider.info.key
         self.state.transcription_provider=recorded
-        # Capabilitățile trebuie să descrie transcriptul ÎNCĂRCAT, nu furnizorul selectat acum.
+        # The capabilities must describe the transcript that was LOADED, not whichever
+        # provider happens to be selected right now.
         self.state.run_capabilities=provider_capabilities(recorded) if recorded in PROVIDERS else None
         # Reconnect the recording, or flag that it needs locating. Opening a project never
         # rewrites or migrates the file on disk.

@@ -1,12 +1,12 @@
-"""Interfața comună a furnizorilor de transcriere.
+"""The interface every transcription provider implements.
 
-Un furnizor primește o înregistrare întreagă și returnează intervenții ale căror
-etichete de vorbitor sunt stabile pe TOT fișierul. Furnizorii care fragmentează
-intern înregistrarea rămân responsabili de reunificarea rezultatelor.
+A provider is handed a whole recording and returns turns whose speaker labels are stable
+across the ENTIRE file. A provider that fragments the recording internally stays
+responsible for stitching its own results back together.
 
-Fiecare furnizor își declară capabilitățile, iar interfața le citește pentru a dezactiva
-funcțiile care ar avea nevoie de date inexistente și pentru a spune cinstit utilizatorului
-la ce să se aștepte.
+Each provider declares what it can do, and the interface reads that to disable features
+that would need data which does not exist, and to tell the researcher honestly what to
+expect before they spend anything.
 """
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ from typing import Any, ClassVar, Callable, Iterable
 
 from models import TranscriptSegment, Word
 
-# (mesaj pentru jurnalul de activitate, progres 0..1 sau None când etapa nu poate fi cuantificată)
+# (message for the activity log, progress 0..1, or None when the stage cannot be measured)
 ProgressCallback = Callable[[str, float | None], None]
 
-# Semnalează anularea cerută de utilizator; furnizorii o consultă între etape.
+# Signals a cancellation asked for by the user; providers check it between stages.
 CancelCallback = Callable[[], bool]
 
 
@@ -37,7 +37,7 @@ class ProviderError(RuntimeError):
 
 @dataclass(frozen=True)
 class ProviderCapabilities:
-    """Ce poate livra efectiv un furnizor. Interfața se adaptează după aceste valori."""
+    """What a provider can actually deliver. The interface adapts itself to these."""
 
     supports_diarization: bool = False
     supports_word_timestamps: bool = False
@@ -55,14 +55,14 @@ class ProviderCapabilities:
 
 
 def feature_state(capabilities: ProviderCapabilities) -> dict[str, bool]:
-    """Traduce capabilitățile în funcții active ale interfeței.
+    """Turn capabilities into the interface features that are live.
 
-    Punct unic de decizie, ca ecranele să nu reinterpreteze fiecare steag pe cont propriu.
+    One place decides, so no screen has to reinterpret each flag on its own.
     """
     return {
-        # Denumirea vorbitorilor are sens doar dacă furnizorul chiar returnează etichete.
+        # Naming speakers only means anything if the provider actually returns labels.
         "speaker_naming": capabilities.supports_diarization,
-        # Reconcilierea între fragmente este necesară doar când etichetele NU sunt globale.
+        # Reconciling across fragments is only needed when the labels are NOT global.
         "speaker_reconciliation": capabilities.supports_diarization and not capabilities.global_speakers,
         "manual_speaker_split": not capabilities.supports_diarization,
         "word_timestamps": capabilities.supports_word_timestamps,
@@ -80,7 +80,7 @@ class ProviderInfo:
     transfer_note: str
     capabilities: ProviderCapabilities = field(default_factory=ProviderCapabilities)
     note: str = ""
-    # Furnizorul generic are nevoie și de adresa endpoint-ului și de numele modelului.
+    # The generic provider needs both the endpoint address and the model name.
     needs_endpoint: bool = False
     # True when the provider receives the whole recording in one upload, which is the case
     # that benefits from a compact copy. The OpenAI path fragments and re-encodes locally.
@@ -88,30 +88,31 @@ class ProviderInfo:
 
 
 class TranscriptionProvider(ABC):
-    """Contractul pe care îl implementează fiecare furnizor."""
+    """The contract each provider implements."""
 
     info: ClassVar[ProviderInfo]
 
     @abstractmethod
     def transcribe(self, audio_path: str, language: str = "ro", expected_speakers: int = 0,
                    progress_cb: ProgressCallback | None = None) -> list[TranscriptSegment]:
-        """Transcrie întreaga înregistrare de la `audio_path`.
+        """Transcribe the whole recording at `audio_path`.
 
-        Segmentele returnate trebuie să poarte:
-          * `speaker_id` GLOBAL, consistent pe toată durata fișierului, dacă furnizorul diarizează;
-          * `words` cu marcaje temporale pentru fiecare cuvânt, când furnizorul le oferă;
-          * `confidence` la nivel de intervenție, când furnizorul îl oferă.
+        The segments returned must carry:
+          * a GLOBAL `speaker_id`, consistent for the length of the file, if the provider
+            diarizes at all;
+          * `words` with per-word timings, when the provider offers them;
+          * `confidence` per turn, when the provider offers it.
 
-        `expected_speakers` este numărul de participanți anticipat de cercetător;
-        `0` înseamnă „lasă furnizorul să decidă". Furnizorii care nu îl acceptă îl
-        ignoră fără să eșueze.
+        `expected_speakers` is how many participants the researcher expects; `0` means
+        "let the provider decide". A provider that does not accept it ignores it rather
+        than failing.
         """
 
     def capabilities(self) -> ProviderCapabilities:
-        """Capabilitățile efective ale ultimei rulări.
+        """What the last run actually delivered.
 
-        Implicit sunt cele declarate; furnizorii al căror răspuns variază (endpoint generic)
-        le restrâng după ce văd ce a returnat serverul.
+        By default this is what was declared; a provider whose response varies (the generic
+        endpoint) narrows it once it has seen what the server returned.
         """
         return self.info.capabilities
 
@@ -130,7 +131,7 @@ def emit_progress(progress_cb: ProgressCallback | None, message: str, fraction: 
 
 
 def speaker_label(number: Any) -> str:
-    """Etichetă globală, lizibilă, pentru un vorbitor numerotat de furnizor."""
+    """A global, readable label for a speaker the provider numbered."""
     try: return f"Speaker {int(number) + 1}"
     except (TypeError, ValueError): return f"Speaker {number}"
 
@@ -138,9 +139,10 @@ def speaker_label(number: Any) -> str:
 def whole_file_segment(number: Any, text: str, start: float, end: float,
                        words: Iterable[Word] | None = None,
                        confidence: float | None = None) -> TranscriptSegment:
-    """Construiește o intervenție pentru furnizorii care procesează fișierul întreg.
+    """Build a turn for the providers that process the whole file.
 
-    Fără fragmentare, `chunk_index` este 0 și offsetul 0: timpii locali coincid cu cei absoluți.
+    With no fragmenting, `chunk_index` and the offset are both 0: local times and absolute
+    times are the same thing.
     """
     return TranscriptSegment(0, 0.0, str(number), speaker_label(number), start, end, start, end,
                              text, None, False, list(words or []), confidence)
@@ -156,10 +158,10 @@ _GAP_EPSILON = 1e-6
 
 def group_by_speaker(items: Iterable[tuple[Any, Word]],
                      max_gap: float = MAX_TURN_GAP) -> list[TranscriptSegment]:
-    """Grupează cuvinte consecutive ale aceluiași vorbitor într-o singură intervenție.
+    """Group consecutive words by the same speaker into a single turn.
 
-    Folosit de furnizorii care raportează la nivel de cuvânt/token, fără intervenții gata formate.
-    Se rupe la schimbarea vorbitorului sau la o pauză mai lungă decât `max_gap`.
+    Used by the providers that report word or token level detail with no ready-made turns.
+    It breaks when the speaker changes, or on a pause longer than `max_gap`.
     """
     segments: list[TranscriptSegment] = []
     current: list[Word] = []
@@ -180,7 +182,7 @@ def group_by_speaker(items: Iterable[tuple[Any, Word]],
 
 def merge_turns(segments: list[TranscriptSegment],
                 max_gap: float = MAX_TURN_GAP) -> list[TranscriptSegment]:
-    """Reunește intervențiile consecutive ale aceluiași vorbitor într-o singură replică.
+    """Join consecutive turns by the same speaker into one.
 
     Providers that return one utterance per short phrase leave the transcript shattered into
     one-word turns. A turn is closed only by a speaker change or by a silence longer than

@@ -1,1 +1,1 @@
-"""Teste pentru aplicația de transcriere."""
+"""Tests for the transcription application."""

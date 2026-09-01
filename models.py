@@ -5,10 +5,10 @@ from typing import Any
 
 
 def _tolerant(cls: type, data: dict[str, Any], fallbacks: dict[str, Any]) -> dict[str, Any]:
-    """Păstrează doar câmpurile reale, ignoră cheile necunoscute și completează obligatoriile lipsă.
+    """Keep only the real fields, ignore unknown keys, and fill in any missing required ones.
 
-    Astfel, proiectele `.transcript.json` salvate cu versiuni mai vechi sau mai noi ale aplicației
-    se deschid în continuare, indiferent ce chei conțin.
+    That is what lets a `.transcript.json` saved by an older or a newer version of the
+    application still open, whatever keys it happens to contain.
     """
     declared = cls.__dataclass_fields__
     clean = {key: value for key, value in data.items() if key in declared}
@@ -65,7 +65,7 @@ class AudioChunk:
 
 @dataclass
 class Word:
-    """Un cuvânt cu marcaje temporale, oferit de furnizorii care raportează la acest nivel."""
+    """One timed word, from the providers that report at this level of detail."""
     start: float
     end: float
     text: str
@@ -115,7 +115,7 @@ class TranscriptSegment:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TranscriptSegment":
-        # `final_speaker` și orice altă cheie necunoscută sunt eliminate de `_tolerant`.
+        # `final_speaker` and any other unknown key is dropped by `_tolerant`.
         clean = _tolerant(cls, data, _SEGMENT_FALLBACKS)
         clean["words"] = [item if isinstance(item, Word) else Word.from_dict(item)
                           for item in clean.get("words") or [] if isinstance(item, (Word, dict))]

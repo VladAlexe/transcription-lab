@@ -8,10 +8,11 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 from models import AudioChunk, AudioInfo, TranscriptSegment
+import strings as s
 from speaker_reconciliation import apply_speaker_mapping
 from transcription import MODEL
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 
 def format_timestamp(seconds: float) -> str:
@@ -32,8 +33,9 @@ def project_payload(info: AudioInfo | None, chunks: list[AudioChunk], segments: 
                     workflow_step: int=0, provider: str="", model: str="",
                     range_start: float|None=None, range_end: float|None=None,
                     last_reviewed: int|None=None) -> dict[str,Any]:
-    # Proveniența reală a rulării; fără ea, orice cale non-OpenAI ar fi înregistrată greșit.
-    # Intervalul transcris este parte din proveniență: fără el nu se știe ce porțiune a fost analizată.
+    # The real provenance of the run; without it, any non-OpenAI path would be recorded
+    # wrongly. The range transcribed is part of that provenance: without it there is no
+    # way to know which portion of the recording was actually analysed.
     audio = info.to_dict() if info else None
     if audio and not include_source_path: audio["path"] = ""
     return {"application_version":APP_VERSION,"project_format":"transcript-project-v1","source_filename":info.filename if info else "",
@@ -68,21 +70,21 @@ def _page_number(paragraph: Any) -> None:
 
 
 def make_docx(info: AudioInfo, segments: list[TranscriptSegment], mapping: dict[str,str], generated_at: str,
-              title: str="Transcriere interviu de grup", metadata: dict[str,str] | None=None,
+              title: str="", metadata: dict[str,str] | None=None,
               include_timestamps: bool=True, include_notice: bool=True, model: str="") -> bytes:
     try:
         document=Document(); section=document.sections[0]
         section.top_margin=section.bottom_margin=Cm(2.5); section.left_margin=section.right_margin=Cm(2.5)
         normal=document.styles["Normal"]; normal.font.name="Aptos"; normal.font.size=Pt(11)
-        heading=document.add_heading(title or "Transcriere interviu de grup",0); heading.alignment=WD_ALIGN_PARAGRAPH.CENTER
-        values={"Fișier original":info.filename,"Data generării":generated_at,"Durata înregistrării":format_timestamp(info.duration),
-                "Model utilizat":model or MODEL}
+        heading=document.add_heading(title or s.DOC_DEFAULT_TITLE,0); heading.alignment=WD_ALIGN_PARAGRAPH.CENTER
+        values={s.DOC_SOURCE_FILE:info.filename,s.DOC_GENERATED:generated_at,
+                s.DOC_DURATION:format_timestamp(info.duration),s.DOC_MODEL:model or MODEL}
         for key,value in (metadata or {}).items():
             if value: values[key]=value
         for label,value in values.items():
             p=document.add_paragraph(); p.add_run(f"{label}: ").bold=True; p.add_run(str(value))
         if include_notice:
-            note=document.add_paragraph("Notă: transcrierea și identificarea vorbitorilor sunt automate și necesită verificare manuală."); note.runs[0].italic=True
+            note=document.add_paragraph(s.DOC_NOTICE); note.runs[0].italic=True
         for item in sorted(segments,key=lambda s:(s.absolute_start,s.absolute_end,s.chunk_index)):
             line=document.add_paragraph(); line.paragraph_format.space_before=Pt(7); line.paragraph_format.space_after=Pt(2)
             line.add_run(apply_speaker_mapping(item,mapping)).bold=True

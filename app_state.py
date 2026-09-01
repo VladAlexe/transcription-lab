@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from models import AudioChunk, AudioInfo, MediaToolPaths, TranscriptSegment
 from providers import DEFAULT_PROVIDER, ProviderCapabilities, provider_capabilities
 
-# Câte o cheie pentru fiecare furnizor; toate trăiesc exclusiv în memoria procesului.
+# One key per provider; every one of them lives only in the memory of this process.
 KEY_FIELDS = {"gladia": "gladia_api_key", "soniox": "soniox_api_key", "deepgram": "deepgram_api_key",
               "openai": "api_key", "compatible": "compatible_api_key"}
 
@@ -22,7 +22,7 @@ class PreparationSettings:
     user_media_tool_path: str = ""
     provider: str = DEFAULT_PROVIDER
     language: str = "ro"
-    expected_speakers: int = 0  # 0 = lasă furnizorul să determine singur numărul
+    expected_speakers: int = 0  # 0 lets the provider work the number out for itself
     # Above this size the recording is re-encoded to a compact copy before being uploaded.
     # A single multi-hundred-megabyte request is what stalls on an ordinary connection.
     upload_compress_above_mb: float = 64.0
@@ -34,7 +34,7 @@ class PreparationSettings:
 
 @dataclass
 class ExportMetadata:
-    title: str = "Transcriere interviu de grup"
+    title: str = ""          # empty means the default title from strings.py
     project_id: str = ""
     interview_date: str = ""
     notes: str = ""
@@ -52,7 +52,7 @@ class AppState:
     gladia_api_key: str = field(default="", repr=False)
     soniox_api_key: str = field(default="", repr=False)
     compatible_api_key: str = field(default="", repr=False)
-    # Adresa și modelul endpoint-ului generic: în memorie, niciodată salvate sau exportate.
+    # The generic endpoint's address and model: in memory, never saved and never exported.
     compatible_base_url: str = field(default="", repr=False)
     compatible_model: str = field(default="", repr=False)
     settings: PreparationSettings = field(default_factory=PreparationSettings)
@@ -98,7 +98,7 @@ class AppState:
 
     @property
     def active_api_key(self) -> str:
-        """Cheia furnizorului selectat. Cheile trăiesc doar în memoria procesului."""
+        """The selected provider's key. Keys live only in the memory of this process."""
         return str(getattr(self, KEY_FIELDS.get(self.settings.provider, "api_key"), ""))
 
     def set_active_api_key(self, value: str) -> None:
@@ -106,7 +106,8 @@ class AppState:
 
     @property
     def effective_capabilities(self) -> ProviderCapabilities:
-        """Ce a livrat efectiv ultima rulare; înaintea ei, ce declară furnizorul selectat."""
+        """What the last run actually delivered; before there is one, what the selected
+        provider declares it can do."""
         return self.run_capabilities or provider_capabilities(self.settings.provider)
 
     def cleanup_temporary(self) -> None:

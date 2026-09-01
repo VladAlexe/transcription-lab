@@ -1,11 +1,12 @@
-"""Furnizorul Soniox: transcriere asincronă de fișier, cu diarizare, marcaje și încredere.
+"""The Soniox provider: asynchronous file transcription, with diarization, word timings
+and confidence.
 
-Soniox raportează la nivel de token: fiecare token poartă text, interval, scor de încredere și
-numărul global al vorbitorului. Tokenii consecutivi ai aceluiași vorbitor sunt grupați într-o
-singură intervenție.
+Soniox reports at token level: each token carries its text, its interval, a confidence
+score and a global speaker number. Consecutive tokens from the same speaker are grouped
+into a single turn.
 
-Fluxul are patru pași: încărcarea fișierului, cererea de transcriere, interogarea stării și
-descărcarea transcriptului.
+The flow has four steps: upload the file, request the transcription, poll the status, then
+download the transcript.
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ POLL_ATTEMPTS = 2160  # ~3 hours at a 5 second interval
 def request_payload(file_id: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0) -> dict[str, Any]:
     payload: dict[str, Any] = {"file_id": file_id, "model": MODEL, "enable_speaker_diarization": True,
                                "language_hints": [language or DEFAULT_LANGUAGE]}
-    # Soniox determină singur numărul de vorbitori; valoarea rămâne orientativă, ca la Deepgram.
+    # Soniox works the speaker count out for itself; the value stays a hint, as with Deepgram.
     if expected_speakers and expected_speakers > 1: payload["num_speakers"] = int(expected_speakers)
     return payload
 
@@ -60,7 +61,7 @@ def parse_transcript(payload: dict[str, Any]) -> list[TranscriptSegment]:
 
 
 class SonioxProvider(TranscriptionProvider):
-    """Diarizare globală, marcaje și încredere la nivel de token, într-un singur flux asincron."""
+    """Global diarization, timings and confidence at token level, in one async flow."""
 
     info = ProviderInfo(
         key="soniox",

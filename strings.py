@@ -355,6 +355,21 @@ DIALOG_OPEN_PROJECT = "Open project"
 DEFAULT_PROJECT_FILENAME = "project.transcript.json"
 EXPORT_FILENAME = "{stem}_transcript.{ext}"
 
+# ── Wording inside the exported Word document ────────────────────────────────
+# It reaches the reader of the transcript rather than the researcher at the screen, so it
+# lives here with everything else a human reads. The transcript body stays in whatever
+# language the interview was conducted in; only these labels are the application speaking.
+DOC_DEFAULT_TITLE = "Group interview transcript"
+DOC_SOURCE_FILE = "Source file"
+DOC_GENERATED = "Generated"
+DOC_DURATION = "Recording length"
+DOC_MODEL = "Model used"
+DOC_PROJECT_ID = "Project identifier"
+DOC_INTERVIEW_DATE = "Interview date"
+DOC_NOTES = "Notes"
+DOC_NOTICE = ("Note: transcription and speaker identification are automatic and require "
+              "manual verification.")
+
 # ── Controller messages that reach the activity log ───────────────────────────
 LOG_FILE_ANALYSED = "File analysed."
 LOG_MERGED_CHRONOLOGICALLY = "Transcript merged chronologically."

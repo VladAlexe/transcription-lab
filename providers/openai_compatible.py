@@ -1,12 +1,12 @@
-"""Furnizor generic pentru orice endpoint compatibil OpenAI.
+"""A generic provider for any OpenAI-compatible endpoint.
 
-Cercetătorul indică adresa de bază, numele modelului și cheia proprie; aplicația trimite
+The researcher supplies the base address, the model name and their own key; the application
 `POST {base_url}/audio/transcriptions` cu `response_format=verbose_json`.
 
-Acest furnizor NU diarizează: tot textul primește o singură etichetă implicită de vorbitor,
-iar delimitarea și denumirea vorbitorilor rămân în sarcina cercetătorului. Răspunsul poate fi
-oricât de sărac — dacă serverul întoarce doar text simplu, se emite câte o intervenție per
-paragraf, ca restul aplicației să funcționeze mai departe.
+This provider does NOT diarize: all the text gets one default speaker label, and splitting
+and naming the speakers is left to the researcher. The response may be as thin as it likes
+— if the server returns nothing but plain text, one turn is emitted per paragraph so the
+rest of the application goes on working.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ SERVICE = "the configured endpoint"
 DEFAULT_MODEL = "whisper-1"
 DEFAULT_LANGUAGE = "ro"
 UPLOAD_SHARE = .85
-# Fără diarizare, toate intervențiile aparțin aceluiași vorbitor implicit.
+# With no diarization, every turn belongs to the same default speaker.
 DEFAULT_SPEAKER = 0
 
 
@@ -52,7 +52,7 @@ def _paragraphs(text: str) -> list[str]:
 
 
 def parse_response(payload: dict[str, Any]) -> tuple[list[TranscriptSegment], bool]:
-    """Returnează intervențiile și dacă răspunsul chiar conținea marcaje temporale."""
+    """Return the turns, and whether the response really carried any timings."""
     raw_segments = payload.get("segments")
     if isinstance(raw_segments, list) and raw_segments:
         segments: list[TranscriptSegment] = []
@@ -64,18 +64,18 @@ def parse_response(payload: dict[str, Any]) -> tuple[list[TranscriptSegment], bo
             words = [_word(item) for item in raw.get("words") or [] if isinstance(item, dict)]
             segments.append(whole_file_segment(DEFAULT_SPEAKER, text, start, end, words, None))
         if segments:
-            # Ordinea este păstrată de sortarea stabilă chiar și când toate marcajele sunt egale.
+            # A stable sort keeps the order even when every timing is identical.
             return sorted(segments, key=lambda s: (s.absolute_start, s.absolute_end)), True
 
     text = str(payload.get("text") or "").strip()
     blocks = _paragraphs(text)
     if not blocks: raise ProviderError("The endpoint returned no transcribed text.")
-    # Fără marcaje: intervalele rămân zero, iar interfața anunță lipsa lor.
+    # No timings: the intervals stay at zero and the interface says they are missing.
     return [whole_file_segment(DEFAULT_SPEAKER, block, 0.0, 0.0, [], None) for block in blocks], False
 
 
 class OpenAICompatibleProvider(TranscriptionProvider):
-    """Orice server care expune `/audio/transcriptions` în stil OpenAI."""
+    """Any server exposing `/audio/transcriptions` in the OpenAI style."""
 
     info = ProviderInfo(
         key="compatible",
@@ -93,7 +93,7 @@ class OpenAICompatibleProvider(TranscriptionProvider):
                  cancelled: CancelCallback | None = None) -> None:
         self.api_key = api_key; self.base_url = base_url; self.model = (model or DEFAULT_MODEL).strip()
         self.cancelled = cancelled
-        # Se restrânge după prima rulare, dacă serverul nu a returnat marcaje temporale.
+        # Narrowed after the first run, if the server returned no timings.
         self._observed = self.info.capabilities
 
     def capabilities(self) -> ProviderCapabilities:
@@ -101,7 +101,7 @@ class OpenAICompatibleProvider(TranscriptionProvider):
 
     def transcribe(self, audio_path: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0,
                    progress_cb: ProgressCallback | None = None) -> list[TranscriptSegment]:
-        # `expected_speakers` nu are efect: endpoint-ul generic nu diarizează.
+        # `expected_speakers` has no effect: the generic endpoint does not diarize.
         if not self.api_key.strip(): raise ProviderError(self.info.missing_key)
         path = Path(audio_path)
         if not path.is_file(): raise ProviderError("The selected recording is no longer available.")

@@ -1,7 +1,7 @@
-"""Utilitare HTTP comune furnizorilor: încărcare în flux și cereri JSON.
+"""HTTP helpers shared by the providers: streaming uploads and JSON requests.
 
-Se folosește exclusiv biblioteca standard, ca aplicația să nu capete dependențe noi.
-Testele înlocuiesc `providers.http.urlopen` pentru a simula răspunsurile serverelor.
+The standard library only, so the application takes on no new dependencies for this.
+Tests replace `providers.http.urlopen` to simulate what a server would return.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from providers.base import CancelCallback, ProgressCallback, ProviderError, emit_progress
 from utils import human_size
 
-BOUNDARY = "----transcriere-interviuri-boundary"
+BOUNDARY = "----transcriptionlab-boundary"
 UPLOAD_STEPS = 20
 REQUEST_TIMEOUT = 900
 # A two-hour recording is a large upload; a poll is a few hundred bytes. They need very
@@ -41,14 +41,15 @@ def content_type(path: Path) -> str:
 
 
 class UploadReader:
-    """Trimite fișierul către socket fără a-l încărca în memorie și raportează progresul.
+    """Send the file to the socket without loading it into memory, reporting progress.
 
-    Poate încadra conținutul între un antet și un subsol (folosite pentru multipart/form-data).
+    It can wrap the content between a head and a tail, which is what multipart/form-data
+    needs.
     """
 
     def __init__(self, handle: BinaryIO, total: int, progress_cb: ProgressCallback | None = None,
                  cancelled: CancelCallback | None = None, head: bytes = b"", tail: bytes = b"",
-                 label: str = "Se încarcă înregistrarea", share: float = 1.0,
+                 label: str = "Uploading the recording", share: float = 1.0,
                  done_message: str = "") -> None:
         self._handle = handle; self._total = max(total, 1); self._sent = 0; self._step = -1
         self._progress_cb = progress_cb; self._cancelled = cancelled
@@ -95,7 +96,7 @@ class UploadReader:
 
 
 def multipart_parts(fields: dict[str, str], file_field: str, path: Path) -> tuple[bytes, bytes, str]:
-    """Antetul și subsolul unui corp multipart care conține câmpuri simple și un fișier."""
+    """The head and tail of a multipart body carrying plain fields and one file."""
     head = bytearray()
     for name, value in fields.items():
         head += f"--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
@@ -137,7 +138,7 @@ def friendly(service: str, code: int, detail: str) -> str:
 
 def send(service: str, url: str, headers: dict[str, str], data: Any = None, method: str = "GET",
          timeout: int = REQUEST_TIMEOUT) -> dict[str, Any]:
-    """Trimite o cerere și returnează răspunsul JSON, cu erorile deja traduse."""
+    """Send a request and return the JSON response, with the errors already translated."""
     request = Request(url, data=data, method=method, headers=headers)
     try:
         with urlopen(request, timeout=timeout) as response:

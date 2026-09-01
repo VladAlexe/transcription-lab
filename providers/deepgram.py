@@ -1,14 +1,14 @@
-"""Furnizorul Deepgram: o singură cerere pentru întreaga înregistrare, cu diarizare globală.
+"""The Deepgram provider: one request for the whole recording, with global diarization.
 
-Deepgram analizează fișierul integral, deci numerele de vorbitor sunt consistente de la
-începutul până la sfârșitul interviului. Pe această cale nu este nevoie de reconcilierea
-etichetelor între fragmente (`speaker_reconciliation.py`): maparea rămâne folosită doar pentru
-a atribui nume reale celor câțiva vorbitori globali.
+Deepgram analyses the file as a whole, so speaker numbers are consistent from the start of
+the interview to the end. On this path there is no need to reconcile labels across
+fragments (`speaker_reconciliation.py`): the mapping is used only to give real names to the
+handful of global speakers.
 
-Notă privind numărul de vorbitori: Deepgram determină singur câți vorbitori există, iar
-`speakers_expected` este trimis doar ca indiciu. Dacă API-ul îl respinge, cererea se reia fără
-el — numărul estimat este ORIENTATIV aici. Furnizorul Gladia, bazat pe pyannote, leagă efectiv
-numărul prin `number_of_speakers` / `min_speakers` / `max_speakers`.
+A note on the speaker count: Deepgram works out how many speakers there are for itself, and
+`speakers_expected` is sent only as a hint. If the API rejects it the request is retried
+without it — the expected number is ADVISORY here. The Gladia provider, built on pyannote,
+genuinely binds it through `number_of_speakers` / `min_speakers` / `max_speakers`.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ SERVICE = "Deepgram"
 API_URL = "https://api.deepgram.com/v1/listen"
 MODEL = "nova-2"
 DEFAULT_LANGUAGE = "ro"
-# Încărcarea ocupă prima parte a barei; restul rămâne pentru procesarea de partea Deepgram.
+# The upload takes the first part of the bar; the rest is Deepgram's own processing.
 UPLOAD_SHARE = .60
 # Deepgram's pre-recorded endpoint is synchronous: this one request carries the upload and the
 # transcription. There is no job id to poll, so the only defence for a long file is a generous
@@ -83,7 +83,7 @@ def parse_response(payload: dict[str, Any]) -> list[TranscriptSegment]:
     if utterances:
         items = [_from_utterance(raw) for raw in utterances if isinstance(raw, dict)]
     else:
-        # Rezervă pentru răspunsurile fără `utterances`: se grupează cuvintele pe vorbitor.
+        # Fallback for responses with no `utterances`: group the words by speaker.
         items = group_by_speaker((raw.get("speaker", 0), _word(raw)) for raw in _channel_words(results)
                                  if isinstance(raw, dict))
     segments = [item for item in items if item and item.original_text]
@@ -93,7 +93,7 @@ def parse_response(payload: dict[str, Any]) -> list[TranscriptSegment]:
 
 
 class DeepgramProvider(TranscriptionProvider):
-    """Diarizare globală: întreaga înregistrare într-o singură cerere."""
+    """Global diarization: the whole recording in a single request."""
 
     info = ProviderInfo(
         key="deepgram",
@@ -148,7 +148,7 @@ class DeepgramProvider(TranscriptionProvider):
                     return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             detail = error_detail(exc)
-            # Indiciul privind numărul de vorbitori este orientativ: dacă îl refuză, reluăm fără el.
+            # The speaker-count hint is advisory: if it is refused, retry without it.
             if with_speaker_hint and "speakers_expected" in params and exc.code in (400, 422):
                 emit_progress(progress_cb, "Deepgram rejected the expected speaker count; retrying without that hint.", None)
                 return self._send(path, language, expected_speakers, progress_cb, False)

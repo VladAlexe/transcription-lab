@@ -1,4 +1,4 @@
-"""Registrul furnizorilor de transcriere."""
+"""The registry of transcription providers."""
 from __future__ import annotations
 
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
@@ -12,7 +12,7 @@ from providers.soniox import SonioxProvider
 
 DEFAULT_PROVIDER = GladiaProvider.info.key
 
-# Ordinea determină și ordinea din lista de selecție a Setărilor.
+# This order is also the order they appear in the Settings picker.
 PROVIDERS: dict[str, type[TranscriptionProvider]] = {
     provider.info.key: provider
     for provider in (GladiaProvider, SonioxProvider, DeepgramProvider, OpenAIDiarizeProvider, OpenAICompatibleProvider)

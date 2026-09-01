@@ -150,7 +150,7 @@ def create_chunks(info: AudioInfo, output_dir: str, overlap_seconds: float = 0,
         while start < info.duration - .05:
             if cancelled and cancelled(): raise AudioProcessingError("Processing was cancelled.")
             duration = min(chunk_duration, info.duration - start)
-            if progress: progress(index, count, f"Se creează fragmentul {index} din {count}.")
+            if progress: progress(index, count, f"Creating fragment {index} of {count}.")
             suffix = source.suffix.lower() if copy else ".m4a"; path = folder / f"fragment_{index:03d}{suffix}"
             _make_chunk(resolved.ffmpeg_path, source, path, start, duration, copy, bitrate_kbps)
             if path.stat().st_size > max_bytes: raise AudioProcessingError("A fragment exceeds the configured safe limit.")
