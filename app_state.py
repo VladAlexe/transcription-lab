@@ -2,6 +2,11 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass, field
 from models import AudioChunk, AudioInfo, MediaToolPaths, TranscriptSegment
+from providers import DEFAULT_PROVIDER, ProviderCapabilities, provider_capabilities
+
+# Câte o cheie pentru fiecare furnizor; toate trăiesc exclusiv în memoria procesului.
+KEY_FIELDS = {"gladia": "gladia_api_key", "soniox": "soniox_api_key", "deepgram": "deepgram_api_key",
+              "openai": "api_key", "compatible": "compatible_api_key"}
 
 
 @dataclass
@@ -15,6 +20,16 @@ class PreparationSettings:
     diagnostic_logging: bool = False
     appearance: str = "light"
     user_media_tool_path: str = ""
+    provider: str = DEFAULT_PROVIDER
+    language: str = "ro"
+    expected_speakers: int = 0  # 0 = lasă furnizorul să determine singur numărul
+    # Above this size the recording is re-encoded to a compact copy before being uploaded.
+    # A single multi-hundred-megabyte request is what stalls on an ordinary connection.
+    upload_compress_above_mb: float = 64.0
+    upload_bitrate_kbps: int = 32
+    # Pausing steps back this far so resuming catches the start of the word (0 disables).
+    auto_rewind_enabled: bool = True
+    auto_rewind_seconds: float = 1.5
 
 
 @dataclass
@@ -33,6 +48,13 @@ class AppState:
     selected_file_path: str | None = None
     selected_file_metadata: AudioInfo | None = None
     api_key: str = field(default="", repr=False)
+    deepgram_api_key: str = field(default="", repr=False)
+    gladia_api_key: str = field(default="", repr=False)
+    soniox_api_key: str = field(default="", repr=False)
+    compatible_api_key: str = field(default="", repr=False)
+    # Adresa și modelul endpoint-ului generic: în memorie, niciodată salvate sau exportate.
+    compatible_base_url: str = field(default="", repr=False)
+    compatible_model: str = field(default="", repr=False)
     settings: PreparationSettings = field(default_factory=PreparationSettings)
     generated_chunks: list[AudioChunk] = field(default_factory=list)
     transcription_progress: float = 0.0
@@ -48,6 +70,24 @@ class AppState:
     dirty: bool = False
     project_path: str | None = None
     generated_at: str = ""
+    # Optional sub-range of the recording; None on both means the whole file.
+    range_start: float | None = None
+    range_end: float | None = None
+    # Where the researcher had got to. Saved with the project, so reopening resumes there.
+    last_reviewed_index: int | None = None
+    show_only_unchecked: bool = False
+    # Run provenance, saved into the project for reproducibility.
+    transcription_provider: str = ""
+    transcription_model: str = ""
+    run_capabilities: ProviderCapabilities | None = None
+    # The recording a saved project refers to, and whether it still needs reconnecting.
+    audio_path: str = ""
+    audio_filename: str = ""
+    audio_bytes: int = 0
+    audio_missing: bool = False
+    audio_banner_dismissed: bool = False
+    # The last replace-all, kept so it can be undone in one step.
+    last_replacement: object | None = None
     activity_log: list[str] = field(default_factory=list)
     technical_details: list[str] = field(default_factory=list)
     temporary_directory: tempfile.TemporaryDirectory[str] | None = field(default=None, repr=False)
@@ -55,6 +95,19 @@ class AppState:
     media_tools: MediaToolPaths = field(default_factory=MediaToolPaths)
     first_run: bool = True
     project_saved: bool = False
+
+    @property
+    def active_api_key(self) -> str:
+        """Cheia furnizorului selectat. Cheile trăiesc doar în memoria procesului."""
+        return str(getattr(self, KEY_FIELDS.get(self.settings.provider, "api_key"), ""))
+
+    def set_active_api_key(self, value: str) -> None:
+        setattr(self, KEY_FIELDS.get(self.settings.provider, "api_key"), value)
+
+    @property
+    def effective_capabilities(self) -> ProviderCapabilities:
+        """Ce a livrat efectiv ultima rulare; înaintea ei, ce declară furnizorul selectat."""
+        return self.run_capabilities or provider_capabilities(self.settings.provider)
 
     def cleanup_temporary(self) -> None:
         if self.temporary_directory:

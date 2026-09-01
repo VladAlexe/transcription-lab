@@ -2,39 +2,139 @@ from __future__ import annotations
 from typing import Callable
 import flet as ft
 import design_tokens as t
+import strings as s
 from app_state import AppState
 from audio_processing import estimated_chunk_count
 from components.buttons import primary_button,secondary_button
 from components.empty_state import file_empty_state
-from document_export import format_timestamp
-from theme import surface
+from providers import provider_info
+from theme import card,collapsible_card,note,page_title,section_title
+from time_range import format_timecode
 from utils import human_size
 
+# Signature: (start_text, end_text) -> error message or None. Validation lives in the app,
+# rendering of the result lives here.
+RangeValidator = Callable[[str, str], str | None]
 
-def _header()->ft.Control:
-    return ft.Column([ft.Text("Fișier",size=t.TYPE_PAGE,weight=ft.FontWeight.W_600),
-        ft.Text("Selectează înregistrarea și verifică strategia de procesare.",size=t.TYPE_SECONDARY,color=t.secondary_color())],spacing=t.S4)
+
+def _hint(text:str)->ft.Control:
+    """Helper line under a field. Flet's `helper` takes a Control, not a string."""
+    return ft.Text(text,size=t.TYPE_CAPTION,color=t.muted())
 
 
-def build(state:AppState,on_choose:Callable[[],None],on_remove:Callable[[],None],on_continue:Callable[[],None],on_quality:Callable[[bool],None])->ft.Control:
+def _metric(label:str,value:str)->ft.Control:
+    return ft.Column([ft.Text(label.upper(),size=t.TYPE_CAPTION,color=t.muted(),weight=ft.FontWeight.W_600),
+        ft.Text(value,size=t.TYPE_BODY,color=t.on_surface(),max_lines=2)],spacing=t.S4,col={"xs":6,"md":3})
+
+
+def _range_card(state:AppState,on_range:RangeValidator,on_continue:Callable[[],None])->tuple[ft.Control,ft.Control]:
+    duration=state.selected_file_metadata.duration if state.selected_file_metadata else 0
+    start=ft.TextField(label=s.RANGE_START,value=format_timecode(state.range_start) if state.range_start else "",
+        dense=True,border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
+        hint_text="00:00:00",helper=_hint(s.RANGE_START_HELPER),col={"xs":12,"md":4})
+    end=ft.TextField(label=s.RANGE_END,value=format_timecode(state.range_end) if state.range_end else "",
+        dense=True,border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
+        hint_text=format_timecode(duration),helper=_hint(s.RANGE_END_HELPER),col={"xs":12,"md":4})
+    summary=ft.Text("",size=t.TYPE_LABEL,color=t.on_surface_variant())
+    error=ft.Text("",size=t.TYPE_LABEL,color=t.error(),visible=False)
+    proceed=primary_button(s.CONTINUE,lambda e:on_continue(),ft.Icons.ARROW_FORWARD,
+        disabled=state.selected_file_metadata is None)
+
+    def commit(event:ft.Event|None=None)->None:
+        message=on_range(start.value or "",end.value or "")
+        error.value=message or ""; error.visible=bool(message)
+        start.error_text=message if message else None
+        summary.value="" if message else _describe(state,duration)
+        proceed.disabled=bool(message) or state.selected_file_metadata is None
+        for control in (start,end,error,summary,proceed):
+            try: control.update()
+            except Exception: pass
+
+    summary.value=_describe(state,duration)
+    start.on_blur=commit; end.on_blur=commit; start.on_submit=commit; end.on_submit=commit
+    body=ft.Column([ft.ResponsiveRow([start,end],spacing=t.S16,run_spacing=t.S12),error,summary,
+        ft.Text(s.RANGE_COST_NOTE,size=t.TYPE_LABEL,color=t.muted())],spacing=t.S12)
+    return collapsible_card(s.RANGE_TITLE,body,s.RANGE_SUBTITLE),proceed
+
+
+def _describe(state:AppState,duration:float)->str:
+    if state.range_start is None and state.range_end is None:
+        return s.RANGE_FULL.format(duration=format_timecode(duration))
+    begin=state.range_start or 0.0; finish=state.range_end if state.range_end is not None else duration
+    return s.RANGE_PARTIAL.format(start=format_timecode(begin),end=format_timecode(finish),
+        duration=format_timecode(max(0.0,finish-begin)),total=format_timecode(duration))
+
+
+def _byok_card(provider_label:str,on_settings:Callable[[],None]|None)->ft.Control:
+    """Bring your own key, said on the first screen rather than discovered on the third.
+
+    A fresh install has no transcription account behind it. Nothing here is an error — the
+    researcher can pick a file and look around perfectly well — so it is a quiet card, not
+    a warning, and it names both places involved: the provider lives in Settings, the key
+    is entered on the Transcription step.
+    """
+    body=ft.Column([ft.Text(s.BYOK_TITLE,size=t.TYPE_SUBHEADING,weight=ft.FontWeight.W_600,
+            color=t.on_surface()),
+        ft.Text(s.BYOK_BODY,size=t.TYPE_LABEL,color=t.on_surface_variant()),
+        ft.Text(s.MODEL_LINE.format(model=provider_label),size=t.TYPE_CAPTION,color=t.muted())],
+        spacing=t.S4,tight=True,expand=True)
+    row:list[ft.Control]=[ft.Icon(ft.Icons.KEY_OUTLINED,size=20,color=t.muted()),body]
+    if on_settings is not None:
+        row.append(secondary_button(s.BYOK_ACTION,lambda e:on_settings(),ft.Icons.SETTINGS_OUTLINED))
+    return card(ft.Row(row,spacing=t.S16,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        variant=True)
+
+
+def build(state:AppState,on_choose:Callable[[],None],on_remove:Callable[[],None],on_continue:Callable[[],None],
+          on_quality:Callable[[bool],None],on_range:RangeValidator,
+          content_width:float|None=None,on_open_project:Callable[[],None]|None=None,
+          on_open_settings:Callable[[],None]|None=None)->ft.Control:
     info=state.selected_file_metadata
-    if not info: body=file_empty_state(lambda e:on_choose())
-    else:
-        quality="Original comprimat" if state.settings.preserve_original else f"AAC mono · {state.settings.fallback_bitrate_kbps} kbps"
-        strategy="Copiere flux când este sigură; recodare automată la nevoie" if state.settings.preserve_original else "Recodare fragment cu fragment"
-        data=[("Durată",format_timestamp(info.duration)),("Dimensiune",human_size(info.size_bytes)),("Format",info.codec.upper()),
-            ("Canale",str(info.channels)),("Eșantionare",f"{info.sample_rate:,} Hz"),("Calitate sursă",quality),
-            ("Fragmente estimate",str(estimated_chunk_count(info,state.settings.overlap_seconds,state.settings.safe_chunk_mb))),
-            ("Strategie",strategy)]
-        body=surface(ft.Column([ft.Row([ft.Container(ft.Icon(ft.Icons.AUDIO_FILE_OUTLINED,size=26,color=t.ACCENT),width=48,height=48,
-            bgcolor=ft.Colors.with_opacity(.08,t.ACCENT),border_radius=t.R_CONTROL,alignment=ft.Alignment.CENTER),ft.Column([ft.Text(info.filename,size=t.TYPE_SECTION,weight=ft.FontWeight.W_600),
-            ft.Text(info.path,size=t.TYPE_LABEL,color=t.secondary_color(),selectable=True,max_lines=1,overflow=ft.TextOverflow.ELLIPSIS)],spacing=t.S4,expand=True)]),
-            ft.Divider(height=1,color=t.border_color()),ft.ResponsiveRow([ft.Column([ft.Text(k.upper(),size=10.5,color=t.secondary_color(),weight=ft.FontWeight.W_600),
-                ft.Text(v,size=t.TYPE_BODY,max_lines=2)],col={"xs":6,"md":3}) for k,v in data],run_spacing=t.S12)],spacing=t.S16))
-    quality=ft.RadioGroup(value="original" if state.settings.preserve_original else "compatibil",on_change=lambda e:on_quality(e.control.value=="original"),
-        content=ft.Row([ft.Radio("Păstrează sursa comprimată când este sigur",value="original"),ft.Radio("Compatibilitate AAC mono",value="compatibil")],wrap=True))
-    return ft.Column([_header(),body,surface(ft.Row([ft.Column([ft.Text("Pregătire audio",size=t.TYPE_SECTION,weight=ft.FontWeight.W_600),
-        ft.Text("Originalul nu este modificat. Numai fragmentele temporare sunt trimise către OpenAI.",size=t.TYPE_SECONDARY,color=t.secondary_color())],expand=True),quality])),
-        ft.Container(expand=True),ft.Row([secondary_button("Schimbă fișierul",lambda e:on_choose(),disabled=info is None),
-            primary_button("Continuă",lambda e:on_continue(),ft.Icons.ARROW_FORWARD,disabled=info is None)],alignment=ft.MainAxisAlignment.END)],spacing=t.S16,expand=True)
+    provider=provider_info(state.settings.provider)
+    needs_key=not state.active_api_key
+    if not info:
+        # Two ways in, stated plainly: start a new recording, or reopen a saved transcript.
+        blocks:list[ft.Control]=[page_title(s.RECORDING_TITLE,s.RECORDING_SUBTITLE,step=1),
+            ft.Container(height=t.S8),
+            file_empty_state(lambda e:on_choose(),content_width),
+            ft.Row([ft.Text(s.EMPTY_RECORDING_HINT,size=t.TYPE_LABEL,color=t.muted(),
+                text_align=ft.TextAlign.CENTER,expand=True)])]
+        if needs_key: blocks.append(_byok_card(provider.label,on_open_settings))
+        if on_open_project is not None:
+            blocks.append(card(ft.Row([
+                ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED,size=20,color=t.muted()),
+                ft.Column([ft.Text(s.OPEN_EXISTING_TITLE,size=t.TYPE_SUBHEADING,
+                        weight=ft.FontWeight.W_500,color=t.on_surface()),
+                    ft.Text(s.OPEN_EXISTING_BODY,size=t.TYPE_LABEL,color=t.on_surface_variant())],
+                    spacing=2,tight=True,expand=True),
+                secondary_button(s.OPEN_EXISTING_ACTION,lambda e:on_open_project())],
+                spacing=t.S16,vertical_alignment=ft.CrossAxisAlignment.CENTER)))
+        return ft.Column(blocks,spacing=t.S24)
 
+    quality_text=(s.QUALITY_ORIGINAL if state.settings.preserve_original
+        else s.QUALITY_COMPATIBLE.format(bitrate=state.settings.fallback_bitrate_kbps))
+    metrics=[(s.FIELD_DURATION,format_timecode(info.duration)),(s.FIELD_SIZE,human_size(info.size_bytes)),
+        (s.FIELD_FORMAT,info.codec.upper()),(s.FIELD_CHANNELS,str(info.channels)),
+        (s.FIELD_SAMPLE_RATE,f"{info.sample_rate:,} Hz"),(s.FIELD_SOURCE_QUALITY,quality_text),
+        (s.FIELD_ESTIMATED_CHUNKS,str(estimated_chunk_count(info,state.settings.overlap_seconds,state.settings.safe_chunk_mb))),
+        (s.FIELD_STRATEGY,s.STRATEGY_COPY if state.settings.preserve_original else s.STRATEGY_ENCODE)]
+    header=ft.Row([ft.Container(ft.Icon(ft.Icons.AUDIO_FILE_OUTLINED,size=22,color=t.muted()),width=44,height=44,
+        bgcolor=t.surface_variant(),border=ft.Border.all(1,t.outline()),border_radius=t.R_MD,alignment=ft.Alignment.CENTER),
+        ft.Text(s.FIELD_SOURCE_QUALITY,size=t.TYPE_LABEL,color=t.muted(),expand=True)],spacing=t.S16)
+    details=collapsible_card(info.filename,
+        ft.Column([header,ft.Divider(height=1,color=t.outline()),
+            ft.ResponsiveRow([_metric(label,value) for label,value in metrics],run_spacing=t.S16)],spacing=t.S24),
+        info.path)
+
+    quality=ft.RadioGroup(value="original" if state.settings.preserve_original else "compatible",
+        on_change=lambda e:on_quality(e.control.value=="original"),
+        content=ft.Column([ft.Radio(s.RADIO_ORIGINAL,value="original",label_style=ft.TextStyle(size=t.TYPE_SECONDARY)),
+            ft.Radio(s.RADIO_COMPATIBLE,value="compatible",label_style=ft.TextStyle(size=t.TYPE_SECONDARY))],spacing=0))
+    preparation=collapsible_card(s.QUALITY_TITLE,ft.Column([note(provider.transfer_note),quality],spacing=t.S16))
+    range_card,proceed=_range_card(state,on_range,on_continue)
+
+    return ft.Column([page_title(s.RECORDING_TITLE,s.RECORDING_SUBTITLE,step=1),details,range_card,preparation,
+        ft.Row([ft.Text(s.NEXT_RECORDING,size=t.TYPE_LABEL,color=t.muted(),expand=True),
+            secondary_button(s.CHANGE_FILE,lambda e:on_choose()),proceed],spacing=t.S12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER)],
+        spacing=t.S24)

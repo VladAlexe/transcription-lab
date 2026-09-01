@@ -1,3 +1,12 @@
+# Release build for TranscriptionLab.
+#
+# Tagging `vX.Y.Z` builds the Windows application and attaches the archive to the GitHub
+# Release for that tag. Everything else (workflow_dispatch, pull requests) builds and
+# uploads an artifact but publishes nothing.
+#
+# windows-latest is required, not a preference: `flet build windows` drives a Flutter
+# Windows build, which needs the MSVC C++ toolchain that only the Windows runner has.
+
 name: Build Windows
 
 on:
@@ -6,47 +15,136 @@ on:
     tags: ["v*"]
   pull_request:
 
+permissions:
+  contents: write
+
+env:
+  # Kept in step with document_export.APP_VERSION; the verify step below fails if they drift.
+  APP_VERSION: "1.1.0"
+  # The FFmpeg version lives in tools_fetch_ffmpeg.py; a test keeps these two in step.
+  FFMPEG_RELEASE: "8.1.2"
+
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
+      # No `lfs: true`: the FFmpeg binaries are not in the repository at all. They are
+      # fetched from upstream below, so a clone stays small and no Git LFS bandwidth
+      # allowance is spent on a file that changes once a year.
       - uses: actions/checkout@v4
-        with:
-          lfs: true
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install dependencies
+
+      - name: Install runtime dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Verify the runtime imports resolve from requirements alone
+        shell: pwsh
+        run: |
+          # Nothing dev-only is installed here, so this fails loudly if the executable would
+          # have depended on something that happens to be on a developer's machine.
+          python -c "import flet, flet_audio, docx, openai; print('flet ok')"
+
+      - name: Run tests
+        run: python -m unittest discover
+
+      - name: Verify version, icons and metadata
+        shell: pwsh
+        run: |
+          $declared = (python -c "import document_export; print(document_export.APP_VERSION)").Trim()
+          if ($declared -ne $env:APP_VERSION) {
+            throw "APP_VERSION is $declared in document_export.py but $env:APP_VERSION in this workflow"
+          }
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $tag = $env:GITHUB_REF -replace '^refs/tags/v',''
+            if ($tag -ne $env:APP_VERSION) {
+              throw "Tag v$tag does not match APP_VERSION $env:APP_VERSION; bump document_export.APP_VERSION and this workflow before tagging"
+            }
+          }
+          foreach ($icon in @('assets\icon.png','assets\icon.ico','assets\icon_windows.png','assets\icon.svg')) {
+            if (-not (Test-Path $icon)) { throw "$icon is missing; regenerate it with tools_make_icon.py" }
+          }
+
+      - name: Fetch FFmpeg
+        shell: pwsh
+        run: |
+          # One place declares the version and the URL: tools_fetch_ffmpeg.py, which a
+          # developer runs after cloning and which runs here before every build. It fails
+          # loudly rather than letting a truncated download become a shipped executable.
+          python tools_fetch_ffmpeg.py
+          $dir = Join-Path "assets" (Join-Path "bin" "windows")
+          foreach ($name in @('ffmpeg.exe','ffprobe.exe','LICENSE-FFMPEG.txt')) {
+            if (-not (Test-Path (Join-Path $dir $name))) { throw "$name was not fetched" }
+          }
+          foreach ($name in @('ffmpeg.exe','ffprobe.exe')) {
+            if ((Get-Item (Join-Path $dir $name)).Length -lt 5MB) { throw "$name is truncated" }
+          }
+
+      - name: Enable symlink support for the Flutter plugin build
+        shell: pwsh
+        run: |
+          # `flutter build windows` with plugins needs symlinks, which Windows only allows
+          # under Developer Mode. Without it the build stops at "Building with plugins
+          # requires symlink support" before MSVC is ever invoked.
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" `
+            /t REG_DWORD /f /v AllowDevelopmentWithoutDevLicense /d 1
+
       - name: Build Windows application
         shell: pwsh
         run: |
           $env:PYTHONUTF8 = "1"
           $env:PYTHONIOENCODING = "utf-8"
-          flet build windows --yes --no-rich-output --no-compile-app --no-compile-packages --exclude .venv build screenshots tests --project transcriere-interviuri --product "Transcriere interviuri" --description "Transcriere locală a interviurilor de grup" --org ro.transcriere
-      - name: Verify bundled FFmpeg resources
+          flet build windows --yes --no-rich-output --no-compile-app --no-compile-packages `
+            --exclude .git .flet .venv build dist screenshots tests __pycache__ .github .agents `
+                      .gitattributes .gitignore tools_make_icon.py tools_fetch_ffmpeg.py `
+                      requirements-dev.txt `
+            --project transcriptionlab `
+            --product "TranscriptionLab" `
+            --description "Transcribe and review long group interviews" `
+            --org org.transcriptionlab `
+            --company "TranscriptionLab" `
+            --copyright "TranscriptionLab" `
+            --build-version $env:APP_VERSION
+
+      - name: Verify the distribution
         shell: pwsh
         run: |
-          if (-not (Test-Path assets\bin\windows\ffmpeg.exe)) { throw "ffmpeg.exe lipsește" }
-          if (-not (Test-Path assets\bin\windows\ffprobe.exe)) { throw "ffprobe.exe lipsește" }
-          & assets\bin\windows\ffmpeg.exe -version | Select-Object -First 1
-          & assets\bin\windows\ffprobe.exe -version | Select-Object -First 1
-          if (-not (Get-ChildItem build\windows -Recurse -Filter ffmpeg.exe)) { throw "ffmpeg.exe nu a fost inclus în distribuție" }
-          if (-not (Get-ChildItem build\windows -Recurse -Filter ffprobe.exe)) { throw "ffprobe.exe nu a fost inclus în distribuție" }
+          $exe = Get-ChildItem build\windows -Recurse -Filter *.exe |
+                 Where-Object { $_.Name -notin @('ffmpeg.exe','ffprobe.exe') } | Select-Object -First 1
+          if (-not $exe) { throw "No application executable was produced in build\windows" }
+          Write-Host "Application executable: $($exe.FullName)"
+          foreach ($name in @('ffmpeg.exe','ffprobe.exe','LICENSE-FFMPEG.txt')) {
+            $found = Get-ChildItem build\windows -Recurse -Filter $name | Select-Object -First 1
+            if (-not $found) { throw "$name was not included in the distribution" }
+            Write-Host "Bundled: $($found.FullName)"
+          }
+          # The app resolves FFmpeg relative to its own executable, so the pair has to land
+          # under the same tree as the exe, not merely somewhere on the runner.
+          $ffmpeg = Get-ChildItem build\windows -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $ffmpeg.FullName.StartsWith($exe.Directory.FullName)) {
+            Write-Host "::warning::ffmpeg.exe sits outside the executable's own directory tree"
+          }
+          $size = "{0:N0}" -f ((Get-ChildItem build\windows -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+          Write-Host "Distribution size: $size MB"
+
       - name: Archive distribution
         shell: pwsh
-        run: Compress-Archive -Path build\windows\* -DestinationPath Transcriere-interviuri-Windows.zip
+        run: Compress-Archive -Path build\windows\* -DestinationPath "TranscriptionLab-Windows-v$env:APP_VERSION.zip"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: Transcriere-interviuri-Windows
-          path: Transcriere-interviuri-Windows.zip
+          name: TranscriptionLab-Windows
+          path: TranscriptionLab-Windows-v*.zip
+          if-no-files-found: error
+
       - name: Create tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: Transcriere-interviuri-Windows.zip
+          files: TranscriptionLab-Windows-v*.zip
+          generate_release_notes: true

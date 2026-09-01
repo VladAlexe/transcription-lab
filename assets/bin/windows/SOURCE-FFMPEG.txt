@@ -1,20 +1,34 @@
 FFmpeg binary provenance
 ========================
 
-Bundled version: FFmpeg 8.1.2 full_build
+Bundled version: FFmpeg 8.1.2 essentials_build
 Build distributor: Gyan Doshi / gyan.dev
 Upstream project: https://ffmpeg.org/
 Binary source page: https://www.gyan.dev/ffmpeg/builds/
-Installation source used for this repository:
-  WinGet package ID: Gyan.FFmpeg
-  Installed folder: ffmpeg-8.1.2-full_build
+Release asset used:
+  https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip
 Build configuration: GPL enabled, version 3 enabled, static Windows build.
 
-The files ffmpeg.exe and ffprobe.exe were copied together from the same
-Gyan full build. LICENSE-FFMPEG.txt is the license file distributed beside
-that exact build.
+The binaries are NOT committed to this repository. They are fetched by
+tools_fetch_ffmpeg.py, which the release workflow runs before building and which
+a developer runs once after cloning. That file is the single place the version
+and the download URL are declared; change it there and nowhere else.
 
-Redistributors must review the license and corresponding-source obligations
-for the exact build they publish. If either executable is replaced, update
-this provenance file and the accompanying license at the same time. Do not
-assume that a different FFmpeg build has identical licensing terms.
+Why the essentials build rather than the full build
+---------------------------------------------------
+The application invokes exactly three things: ffprobe for stream metadata, the
+native AAC encoder for its compact upload copy and its per-turn range cuts, and
+the MP4/M4A muxer. The essentials build carries all of them. The full build adds
+external libraries this application never calls, at 268 MB of extra download.
+
+Verified against the essentials build before the switch: probing of .wav, .m4a,
+.mp3, .flac, .webm, .mp4 and .aac; compress_command (AAC mono 16 kHz 32 kbps);
+range_command in both re-encode and stream-copy modes; and chunk creation.
+
+Licence
+-------
+LICENSE-FFMPEG.txt is the licence file distributed inside that exact archive and
+is fetched alongside the binaries. Redistributors must review the licence and the
+corresponding-source obligations for the exact build they publish. If either
+executable is replaced, update this provenance file and tools_fetch_ffmpeg.py at
+the same time. Do not assume a different FFmpeg build has identical terms.

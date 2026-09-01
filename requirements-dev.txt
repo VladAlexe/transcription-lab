@@ -1,0 +1,5 @@
+# Development-only. Never installed by the release workflow: nothing here is imported by
+# the application at runtime, so none of it belongs inside the shipped executable.
+-r requirements.txt
+
+pillow==12.3.0               # tools_make_icon.py only, to regenerate assets/icon*.png

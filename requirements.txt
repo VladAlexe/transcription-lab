@@ -1,6 +1,16 @@
-flet==0.86.1
-flet-cli==0.86.1
-flet-desktop==0.86.1
-openai>=1.57,<3
-python-docx>=1.1,<2
-websockets>=12,<17
+# Runtime dependencies for the built Windows application.
+#
+# Pinned exactly, not by range: a release build has to be reproducible, and the version
+# that CI ships must be the version the tests here were run against. Every entry below is
+# imported by shipped code (see the comment beside it) or required by Flet at runtime.
+#
+# Development-only tools live in requirements-dev.txt and are deliberately NOT installed
+# by the release workflow, so nothing dev-only can leak into the executable.
+
+flet==0.86.1                 # the UI framework; `import flet`
+flet-audio==0.86.1           # the audio Service, a separate package; `import flet_audio`
+flet-cli==0.86.1             # provides `flet build windows`
+flet-desktop==0.86.1         # the desktop client `flet run` and the build embed
+openai==2.46.0               # providers/openai_diarize.py
+python-docx==1.2.0           # document_export.py; `import docx`
+websockets==16.1.1           # required by flet's client transport

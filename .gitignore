@@ -63,8 +63,13 @@ $RECYCLE.BIN/
 
 # ─── Exceptii: acestea TREBUIE sa ajunga pe GitHub ────────────────────
 # FFmpeg livrat cu aplicatia (urmarit prin Git LFS, vezi .gitattributes)
-!assets/bin/windows/ffmpeg.exe
-!assets/bin/windows/ffprobe.exe
-!assets/bin/windows/LICENSE-FFMPEG.txt
 !assets/bin/windows/SOURCE-FFMPEG.txt
 !assets/icon.svg
+
+# FFmpeg is fetched, not committed. The pair is ~194 MB and changes only when
+# tools_fetch_ffmpeg.py pins a new version; keeping it in the repository would spend the
+# Git LFS bandwidth allowance on every clone and every CI run. Run
+# `python tools_fetch_ffmpeg.py` once after cloning; CI runs it before every build.
+assets/bin/windows/ffmpeg.exe
+assets/bin/windows/ffprobe.exe
+assets/bin/windows/LICENSE-FFMPEG.txt

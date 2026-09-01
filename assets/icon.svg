@@ -1,5 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="48" fill="#2F6FED"/>
-  <rect x="94" y="46" width="68" height="112" rx="34" fill="white"/>
-  <path d="M70 124c0 32 26 58 58 58s58-26 58-58M128 182v30M94 212h68" fill="none" stroke="white" stroke-width="14" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="TranscriptionLab">
+  <!-- Vector twin of assets/icon.png: a transcript page that speaks.
+       Ink #282D31, sage #758D83 — the two colours the interface palette is built from. -->
+  <g fill="none" stroke="#282D31" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Document body with a speech tail at the lower left -->
+    <path d="M141 32H67a29 29 0 0 0-29 29v106a29 29 0 0 0 29 29h4v29l31-29h48"/>
+    <path d="M186 100V78l-45-46"/>
+  </g>
+  <!-- Folded corner -->
+  <path d="M141 32l45 46h-45z" fill="#758D83"/>
+  <path d="M141 32l45 46h-45z" fill="none" stroke="#282D31" stroke-width="13" stroke-linejoin="round"/>
+  <!-- Ruled lines: the third one is sage, as in the mark -->
+  <g stroke-linecap="round" stroke-width="14">
+    <path d="M72 90h55" stroke="#282D31"/>
+    <path d="M72 113h55" stroke="#282D31"/>
+    <path d="M72 136h55" stroke="#758D83"/>
+    <path d="M72 159h37" stroke="#282D31"/>
+  </g>
+  <!-- Waveform -->
+  <g fill="#758D83">
+    <rect x="140" y="140" width="13" height="26" rx="6.5"/>
+    <rect x="160" y="126" width="13" height="54" rx="6.5"/>
+    <rect x="180" y="108" width="13" height="90" rx="6.5"/>
+    <rect x="200" y="126" width="13" height="54" rx="6.5"/>
+    <rect x="220" y="140" width="13" height="26" rx="6.5"/>
+  </g>
 </svg>
