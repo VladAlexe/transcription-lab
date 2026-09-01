@@ -13,7 +13,14 @@ import sys
 import unittest
 from pathlib import Path
 
-import yaml
+# PyYAML is not a runtime dependency of the application. It reaches CI transitively
+# (flet-cli -> cookiecutter -> PyYAML) and is already inside the packaged distribution, so
+# these checks do run there. Guarded all the same: if that chain ever changes, this should
+# report a clear skip rather than an import error that fails collection for the whole file.
+try:
+    import yaml
+except ImportError:                                              # pragma: no cover
+    yaml = None
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -93,6 +100,8 @@ class DependencyTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        if yaml is None:
+            raise unittest.SkipTest("PyYAML is unavailable; pip install pyyaml to run these")
         cls.data = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         # PyYAML reads the bare key `on:` as the boolean True.
         cls.triggers = cls.data[True] if True in cls.data else cls.data["on"]

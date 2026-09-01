@@ -1,12 +1,14 @@
 from __future__ import annotations
-import json, unittest
+import json, os, tempfile, unittest
 from pathlib import Path
+from unittest import mock
 from app_controller import AppController
 from audio_processing import estimate_chunk_duration, estimated_chunk_count
 from document_export import make_docx, project_payload
-from models import AudioChunk, AudioInfo, TranscriptSegment
+from models import AudioChunk, AudioInfo, MediaToolPaths, TranscriptSegment
 from speaker_reconciliation import apply_speaker_mapping, initialize_mapping
 from transcription import parse_response, transcribe_chunks
+import media_tools
 from media_tools import resolve_media_tools
 
 
@@ -58,11 +60,34 @@ class ApplicationTests(unittest.TestCase):
         item=segment();result=make_docx(self.info,[item],{item.speaker_id:"Moderator"},"date")
         self.assertTrue(result.startswith(b"PK"));self.assertGreater(len(result),10000)
 
-    def test_bundled_media_tools_are_valid_and_paired(self)->None:
+    def test_media_tools_resolve_to_a_validated_pair_when_one_is_present(self)->None:
+        """The binaries are fetched rather than committed (see tools_fetch_ffmpeg.py), so a
+        fresh clone has none — and CI runs the tests before its fetch step. Where a pair
+        does exist, it has to be validated, co-located and absolute."""
         tools=resolve_media_tools()
-        self.assertTrue(tools.is_valid);self.assertEqual(tools.source_type,"bundled")
+        if not tools.is_valid:
+            self.skipTest("no FFmpeg here; run python tools_fetch_ffmpeg.py")
         self.assertEqual(Path(tools.ffmpeg_path).parent,Path(tools.ffprobe_path).parent)
-        self.assertTrue(Path(tools.ffmpeg_path).is_absolute());self.assertIn("ffmpeg version",tools.version.lower())
+        self.assertTrue(Path(tools.ffmpeg_path).is_absolute())
+        self.assertIn("ffmpeg version",tools.version.lower())
+        bundled=Path(media_tools.__file__).parent/"assets"/"bin"/"windows"/"ffmpeg.exe"
+        if bundled.is_file():
+            self.assertEqual(tools.source_type,"bundled","the bundled pair must win over PATH")
+
+    def test_absent_media_tools_are_reported_rather_than_raising(self)->None:
+        """What the application actually relies on when nothing is installed: an invalid
+        result it can show a locate dialog for, not an exception on the way to the screen."""
+        with mock.patch.object(media_tools,"_candidate_roots",return_value=[]),              mock.patch.object(media_tools.shutil,"which",return_value=None),              mock.patch.dict(os.environ,{"LOCALAPPDATA":str(Path(tempfile.gettempdir())/"no-winget-here")},clear=False):
+            tools=media_tools.resolve_media_tools([])
+        self.assertFalse(tools.is_valid)
+        self.assertEqual(tools.source_type,"unavailable")
+        self.assertEqual(tools.ffmpeg_path,"")
+
+    def test_a_user_selected_folder_is_the_last_resort(self)->None:
+        with mock.patch.object(media_tools,"_candidate_roots",return_value=[]),              mock.patch.object(media_tools.shutil,"which",return_value=None),              mock.patch.object(media_tools,"_validate",
+                               return_value=MediaToolPaths("a","b","user_selected","ffmpeg version x",True)):
+            tools=media_tools.resolve_media_tools([r"C:	oolsfmpeg"])
+        self.assertTrue(tools.is_valid);self.assertEqual(tools.source_type,"user_selected")
 
 
 if __name__=="__main__":unittest.main()
