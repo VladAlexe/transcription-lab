@@ -20,7 +20,7 @@ permissions:
 
 env:
   # Kept in step with document_export.APP_VERSION; the verify step below fails if they drift.
-  APP_VERSION: "1.1.2"
+  APP_VERSION: "1.2.1"
   # The FFmpeg version lives in tools_fetch_ffmpeg.py; a test keeps these two in step.
   FFMPEG_RELEASE: "8.1.2"
 
@@ -49,6 +49,17 @@ jobs:
           # Nothing dev-only is installed here, so this fails loudly if the executable would
           # have depended on something that happens to be on a developer's machine.
           python -c "import flet, flet_audio, docx, openai; print('flet ok')"
+
+      - name: Install development dependencies
+        run: |
+          # Only after the check above has passed. The test suite needs tools the shipped
+          # application does not — Pillow to read the generated icons, PyYAML to read this
+          # file — and installing them any earlier would let the runtime-only guarantee be
+          # satisfied by a package that is never in the executable. They are installed here
+          # and nowhere near the build: `--exclude requirements-dev.txt` below keeps the
+          # file itself out of the distribution, and the packaged Python environment is
+          # built from requirements.txt.
+          pip install -r requirements-dev.txt
 
       - name: Run tests
         run: python -m unittest discover

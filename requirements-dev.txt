@@ -1,5 +1,10 @@
-# Development-only. Never installed by the release workflow: nothing here is imported by
-# the application at runtime, so none of it belongs inside the shipped executable.
+# Development-only: nothing here is imported by the application at runtime, so none of it
+# belongs inside the shipped executable.
+#
+# The release workflow installs this file, but only AFTER it has proved the runtime imports
+# resolve from requirements.txt alone. That order is the guarantee — installed any earlier,
+# a package that never reaches the executable could satisfy the check for one that must.
 -r requirements.txt
 
-pillow==12.3.0               # tools_make_icon.py only, to regenerate assets/icon*.png
+pillow==12.3.0               # tools_make_icon.py, and tests/test_release.py reading the icons
+pyyaml==6.0.3                # tests/test_release.py reading .github/workflows/windows-build.yml

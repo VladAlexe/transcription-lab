@@ -29,9 +29,10 @@ def pathlib_read(module) -> str:
     return Path(module.__file__).read_text(encoding="utf-8")
 WORKFLOW = ROOT / ".github" / "workflows" / "windows-build.yml"
 SHIPPED_EXCLUDED = {".venv", "build", "tests", "screenshots", "__pycache__"}
-# Imported only by tools_make_icon.py, which is a development tool and is excluded from
-# the package; it must not become a runtime dependency by accident.
-DEV_ONLY_MODULES = {"PIL"}
+# Installed for the tests and for tools_make_icon.py, never for the executable: the build
+# excludes both the tool and requirements-dev.txt. No shipped module may import either of
+# these, or the runtime-import check would be passing on a package that is not in the app.
+DEV_ONLY_MODULES = {"PIL", "yaml"}
 DISTRIBUTION = {"flet": "flet", "flet_audio": "flet-audio", "docx": "python-docx",
                 "openai": "openai"}
 
@@ -94,7 +95,8 @@ class DependencyTests(unittest.TestCase):
 
     def test_no_shipped_module_imports_a_development_only_package(self) -> None:
         leaked = imports_of(shipped_modules()) & DEV_ONLY_MODULES
-        self.assertEqual(leaked, set(), f"{leaked} is not installed by the release workflow")
+        self.assertEqual(leaked, set(),
+                         f"{leaked} is installed for the tests, never for the executable")
 
 
 class WorkflowTests(unittest.TestCase):
@@ -118,8 +120,36 @@ class WorkflowTests(unittest.TestCase):
 
     def test_it_installs_the_pinned_requirements(self) -> None:
         self.assertIn("pip install -r requirements.txt", self.script)
-        self.assertNotIn("requirements-dev.txt", self.script.replace("requirements-dev.txt\n", "", 0)
-                         .split("--exclude")[0], "dev tools must not be installed")
+
+    def test_the_runtime_check_happens_before_any_development_tool_is_installed(self) -> None:
+        """The guarantee is the order, not abstinence.
+
+        This used to insist the dev requirements were never installed at all, which is what
+        left the test suite without Pillow on the runner and failed the v1.2.0 release with
+        `ModuleNotFoundError: No module named 'PIL'`. What actually protects the executable
+        is that the runtime imports are proved against requirements.txt alone — before any
+        dev tool exists on the machine to satisfy one by accident. Installing them
+        afterwards, for the tests, cannot weaken a check that has already run.
+        """
+        names = [step.get("name", "") for step in self.steps]
+        verify = names.index("Verify the runtime imports resolve from requirements alone")
+        install_dev = names.index("Install development dependencies")
+        self.assertLess(names.index("Install runtime dependencies"), verify)
+        self.assertLess(verify, install_dev)
+        self.assertLess(install_dev, names.index("Run tests"))
+        self.assertIn("pip install -r requirements-dev.txt", str(self.steps[install_dev]["run"]))
+
+    def test_the_runtime_check_is_not_handed_a_development_tool_to_import(self) -> None:
+        """Whatever the order says, the check itself must name only shipped packages."""
+        step = [s for s in self.steps
+                if s.get("name") == "Verify the runtime imports resolve from requirements alone"][0]
+        for module in DEV_ONLY_MODULES:
+            self.assertNotIn(module, str(step["run"]))
+
+    def test_the_development_requirements_never_reach_the_distribution(self) -> None:
+        build = [step for step in self.steps if "flet build windows" in str(step.get("run", ""))][0]
+        excluded = str(build["run"]).split("--exclude", 1)[1].split("--project", 1)[0]
+        self.assertIn("requirements-dev.txt", excluded)
 
     def test_it_proves_flet_audio_is_importable_before_building(self) -> None:
         self.assertIn("import flet, flet_audio, docx, openai", self.script)
