@@ -46,7 +46,7 @@ def signature(control) -> list[tuple]:
 
 
 def review(state: AppState, content: float, **kwargs) -> ft.Control:
-    return speakers_view.build(state, noop, noop, noop, 1, 0, noop,
+    return speakers_view.build(state, noop, noop, noop, 1, noop,
                                {"rows": {}, "speakers": {}}, content, noop, noop, noop, noop,
                                **kwargs)
 
@@ -181,18 +181,48 @@ class ReassignTests(unittest.TestCase):
                          ["Moderator", "Ana", "Radu"], "it shows the names, not the raw labels")
         self.assertIsNotNone(found[0].tooltip)
 
-    def test_the_select_sits_in_the_same_row_as_the_other_turn_controls(self) -> None:
+    def test_the_select_stays_a_row_in_the_panel_and_never_a_screen(self) -> None:
+        """Moving one turn is a small correction and must cost one click, not a panel. It
+        sits below the editor now, with the other things you reach for occasionally, rather
+        than between the text and the button that saves it."""
         panel = speakers_view.inspector(populated(), 1, noop, noop, noop, {}, None, noop, noop,
-                                        noop, noop)
+                                        noop, noop, on_toggle_note=noop)
         rows = layout_audit.find(panel, lambda c: isinstance(c, ft.Row)
                                  and any(isinstance(x, ft.Dropdown) for x in (c.controls or [])))
         self.assertEqual(len(rows), 1)
         beside = [c for c in rows[0].controls if isinstance(c, ft.IconButton)]
-        self.assertEqual(len(beside), 3, "insert timestamp, revert and play share the row")
-        self.assertEqual({c.tooltip for c in beside},
-                         {s.INSERT_TIMESTAMP, s.REVERT_CORRECTION, s.PLAY_RANGE})
+        self.assertEqual([c.tooltip for c in beside], [s.NOTE_ADD])
         for control in beside:
             self.assertEqual(control.width, t.ICON_BUTTON)
+
+    def test_saving_sits_directly_under_the_box_it_saves(self) -> None:
+        """It used to come after the marking preview and the comment list, which on a marked
+        turn put the screen's most repeated action below the fold of its own panel."""
+        panel = speakers_view.inspector(populated(), 1, noop, noop, noop, {}, None, noop, noop,
+                                        noop, noop)
+        rows = [c for c in (panel.controls or []) if isinstance(c, ft.Row)]
+        # An OutlinedButton's label is its `content`, not a `text` attribute.
+        saving = [c for c in rows if any(getattr(x, "content", None) == s.SAVE_CORRECTION
+                                         for x in (c.controls or []))]
+        self.assertEqual(len(saving), 1)
+        beside = [c.tooltip for c in saving[0].controls if isinstance(c, ft.IconButton)]
+        self.assertEqual(beside, [s.INSERT_TIMESTAMP, s.REVERT_CORRECTION])
+        # Directly under the text surface, with nothing in between.
+        self.assertEqual(panel.controls.index(saving[0]),
+                         panel.controls.index(self.surface(panel)) + 1)
+
+    def surface(self, panel):
+        return [c for c in panel.controls
+                if isinstance(c, ft.Column) and any(isinstance(x, ft.TextField)
+                                                    for x in (c.controls or []))][0]
+
+    def test_the_stamp_is_the_way_into_the_audio(self) -> None:
+        """The panel could say everything about a turn except when it happened."""
+        panel = speakers_view.inspector(populated(), 1, noop, noop, noop, {}, None, noop, noop,
+                                        noop, noop)
+        stamps = layout_audit.find(panel, lambda c: getattr(c, "tooltip", "") == s.PLAY_RANGE)
+        self.assertEqual(len(stamps), 1)
+        self.assertIsNotNone(stamps[0].on_click)
 
     def test_choosing_a_speaker_calls_back_with_the_turn_and_the_label(self) -> None:
         seen: list[tuple[int, str]] = []

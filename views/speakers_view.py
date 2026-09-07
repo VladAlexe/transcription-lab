@@ -12,16 +12,16 @@ import flet as ft
 import design_tokens as t
 import strings as s
 from app_state import AppState
-from components.audio_transport import audio_missing_banner,audio_transport
+from components.audio_transport import audio_missing_banner
 from components.buttons import icon_button,primary_button,secondary_button,tertiary_button
+from components.marking import comment_list,marking_bar as marking,preview as mark_preview
 from components.speaker_panel import speaker_panel
 from components.transcript_list import transcript_list
 from models import TranscriptSegment
-from playback_sync import low_confidence_marks
 from providers import feature_state
 from speaker_reconciliation import speaker_statistics,apply_speaker_mapping
 from document_export import format_timestamp
-from theme import note,page_title
+from theme import note,panel_title
 
 PAGE_SIZE=80
 
@@ -86,10 +86,14 @@ def reading_measure(content_width:float|None,identity_width:float=0.0)->float:
     The desk can be any size; a line of prose cannot. This caps the text at a comfortable
     measure while never exceeding the column it actually sits in — the floor is deliberately
     below TRANSCRIPT_MIN_COLUMN so the cap can never be wider than the space it is given.
+
+    It used to take a timestamp gutter off the top as well. There is no gutter: the stamp
+    moved onto the line above the speech long ago and the subtraction stayed behind, quietly
+    costing every row fifty-six pixels of the sentence it was supposed to be showing.
     """
     available=float(content_width or t.MAX_CONTENT)
     if identity_width: available-=identity_width+t.S16
-    return max(160.0,min(float(t.TRANSCRIPT_MEASURE),available-t.TIMESTAMP_GUTTER-2*t.S16))
+    return max(160.0,min(float(t.TRANSCRIPT_MEASURE),available-2*t.S16))
 
 
 def _diarization_caption(state:AppState)->ft.Control|None:
@@ -108,59 +112,73 @@ def _diarization_caption(state:AppState)->ft.Control|None:
     return ft.Text(s.DIARIZATION_GLOBAL,size=t.TYPE_CAPTION,color=t.muted())
 
 
+# What the toolbar costs before anything is dropped, in the order it is dropped. Measured
+# from the tokens rather than guessed: a Row cannot shrink an intrinsic child, so a bar with
+# more in it than fits does not compress — it clips, and what it clips is the last thing in
+# the row, which is the button that leaves the screen.
+BAR_PROGRESS = 250           # ring, count, filter and resume inside their pill
+BAR_ICONS = 2*(t.ICON_BUTTON+t.S8)   # the speaker toggle and find, with their gaps
+BAR_EXPORT_LABELLED = 190    # icon, "Continue to export", padding
+BAR_TITLE = 190              # the screen name and the turn counts beside it
+
+
 def _workbench_bar(state:AppState,speakers:int,on_open_find:Callable[[],None]|None,
                    on_export:Callable[[],None],on_toggle_identities:Callable[[],None]|None=None,
-                   identities_hidden:bool=False)->ft.Control:
-    """One 56px line where a heading block used to be.
+                   identities_hidden:bool=False,progress:ft.Control|None=None,
+                   width:float|None=None)->ft.Control:
+    """One line where four bands used to be.
 
-    The eyebrow and the subtitle said what the sidebar already shows and what the researcher
-    learned on their first run. What they cannot get anywhere else is the size of what they
-    are holding, so that is what the line carries instead.
+    The screen title, the counts, the progress and the actions were four stacked strips
+    before the first word of the interview. The rail already says which screen this is, so
+    the title carries the one thing nothing else can tell you — how large the thing in front
+    of you is — and everything else joins it on the same line.
     """
     segments=state.transcript_segments
     duration=format_timestamp(segments[-1].absolute_end) if segments else format_timestamp(0)
     meta=s.WORKBENCH_META.format(turns=len(segments),speakers=speakers,duration=duration)
-    # Title and count stack, so neither has to compete with the other for the same line, and
-    # the actions get a whole column of their own with even spacing between them.
-    identity=ft.Column([
-        ft.Text(s.SPEAKERS_TITLE,size=t.TYPE_DISPLAY,weight=ft.FontWeight.W_600,
-            color=t.on_surface(),no_wrap=True),
-        ft.Text(meta,size=t.TYPE_LABEL,color=t.muted(),no_wrap=True,
-            overflow=ft.TextOverflow.ELLIPSIS)],spacing=2,tight=True)
+    # Three columns leave the toolbar about five hundred pixels on an ordinary window, and
+    # everything in it has a width of its own. So the pieces are dropped in order of what
+    # can be learnt elsewhere: the screen name is in the sidebar and the status band, the
+    # counts are in the progress pill, and only the way out of the screen is irreplaceable.
+    room=float(width or t.MAX_CONTENT)
+    fixed=(BAR_PROGRESS if progress is not None else 0)+BAR_ICONS
+    labelled=room>=fixed+BAR_EXPORT_LABELLED
+    titled=room>=fixed+BAR_EXPORT_LABELLED+BAR_TITLE
+
+    leading:list[ft.Control]=[]
+    if titled:
+        leading=[ft.Row([
+            ft.Text(s.SPEAKERS_TITLE,size=t.TYPE_DISPLAY,weight=ft.FontWeight.W_600,
+                color=t.on_surface(),no_wrap=True),
+            ft.Text(meta,size=t.TYPE_META,color=t.muted(),no_wrap=True,
+                overflow=ft.TextOverflow.ELLIPSIS,expand=True)],
+            spacing=t.S12,vertical_alignment=ft.CrossAxisAlignment.CENTER,expand=True)]
+    else:
+        leading=[ft.Container(expand=True,tooltip=f"{s.SPEAKERS_TITLE} · {meta}")]
+
     actions:list[ft.Control]=[]
+    if progress is not None: actions.append(progress)
     if on_toggle_identities is not None:
         actions.append(icon_button(ft.Icons.PEOPLE_OUTLINE,
             s.EXPAND_IDENTITIES if identities_hidden else s.COLLAPSE_IDENTITIES,
             lambda e:on_toggle_identities(),
             color=t.muted() if identities_hidden else t.primary()))
-    actions.append(secondary_button(s.FIND_REPLACE,(lambda e:on_open_find()) if on_open_find else None,
-        ft.Icons.FIND_REPLACE,disabled=on_open_find is None))
-    actions.append(primary_button(s.CONTINUE_TO_EXPORT,lambda e:on_export(),ft.Icons.ARROW_FORWARD))
-    # The bar spans the whole content width, above the panes. Inside a pane it was squeezed
-    # by the pane, and the primary action was the first thing to be cut off.
-    return ft.Container(ft.Row([ft.Container(identity,expand=True,padding=ft.Padding(0,0,t.S24,0)),
-        ft.Row(actions,spacing=t.S12,vertical_alignment=ft.CrossAxisAlignment.CENTER)],
-        spacing=0,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+    actions.append(icon_button(ft.Icons.FIND_REPLACE,s.FIND_REPLACE,
+        (lambda e:on_open_find()) if on_open_find else None,disabled=on_open_find is None))
+    if labelled:
+        actions.append(primary_button(s.CONTINUE_TO_EXPORT,lambda e:on_export(),
+            ft.Icons.ARROW_FORWARD))
+    else:
+        # Still the accent, still the only filled control on the screen — just without the
+        # words, which is better than the words with their end cut off.
+        actions.append(ft.IconButton(ft.Icons.ARROW_FORWARD,tooltip=s.CONTINUE_TO_EXPORT,
+            on_click=lambda e:on_export(),icon_color=t.on_primary(),icon_size=18,
+            width=t.ICON_BUTTON,height=t.ICON_BUTTON,bgcolor=t.primary(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=t.R_SM))))
+    return ft.Container(ft.Row([*leading,
+        ft.Row(actions,spacing=t.S8,vertical_alignment=ft.CrossAxisAlignment.CENTER)],
+        spacing=t.S16,vertical_alignment=ft.CrossAxisAlignment.CENTER),
         height=t.WORKBENCH_BAR_HEIGHT)
-
-
-def _uncertain_strip(state:AppState,on_next:Callable[[],None]|None)->ft.Control|None:
-    """Only shown when the provider actually scores confidence — otherwise there is nothing
-    to count, and a control that always reads zero is worse than no control."""
-    if not feature_state(state.effective_capabilities)["confidence_display"]: return None
-    marks=low_confidence_marks(state.transcript_segments)
-    # Nothing flagged is not news. A row that can only ever say "all clear" is one more
-    # thing to read past on every render, so it simply is not drawn.
-    if not marks: return None
-    word_level=any(mark.word_level for mark in marks)
-    label=(s.LOW_CONFIDENCE_COUNT if word_level else s.LOW_CONFIDENCE_TURNS).format(count=len(marks))
-    return ft.Container(ft.Row([ft.Icon(ft.Icons.HELP_OUTLINE,size=16,color=t.on_surface_variant()),
-        ft.Text(label,size=t.TYPE_LABEL,color=t.on_surface(),expand=True),
-        secondary_button(s.LOW_CONFIDENCE_NEXT,(lambda e:on_next()) if on_next else None,
-            ft.Icons.ARROW_FORWARD,disabled=on_next is None)],
-        spacing=t.S12,vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        padding=ft.Padding(t.S16,t.S8,t.S16,t.S8),bgcolor=t.surface_variant(),
-        border=ft.Border.all(t.HAIRLINE,t.outline()),border_radius=t.R_SM)
 
 
 def identities_pane(state:AppState,on_map:Callable[[str,str],None],refs:dict|None=None,
@@ -179,11 +197,9 @@ def identities_pane(state:AppState,on_map:Callable[[str,str],None],refs:dict|Non
     panel_refs=refs.setdefault("speakers",{}) if refs is not None else None
     rows:list[ft.Control]=[]
     if heading:
-        head:list[ft.Control]=[ft.Text(s.IDENTITIES,size=t.TYPE_HEADING,weight=ft.FontWeight.W_600,
-            color=t.on_surface(),expand=True)]
-        if on_close is not None:
-            head.append(icon_button(ft.Icons.CLOSE,s.COLLAPSE_IDENTITIES,lambda e:on_close(),size=17))
-        rows.append(ft.Row(head,spacing=t.S8,vertical_alignment=ft.CrossAxisAlignment.CENTER))
+        close=(icon_button(ft.Icons.CLOSE,s.COLLAPSE_IDENTITIES,lambda e:on_close(),size=15)
+               if on_close is not None else None)
+        rows.append(panel_title(s.IDENTITIES,close))
     return ft.Column([*rows,
         ft.Text(s.IDENTITIES_COUNT.format(count=len(stats)) if diarized else s.IDENTITIES_NONE,
             size=t.TYPE_LABEL,color=t.muted()),
@@ -194,56 +210,52 @@ def identities_pane(state:AppState,on_map:Callable[[str,str],None],refs:dict|Non
 
 
 def build(state:AppState,on_select:Callable[[int],None],on_play:Callable[[int],None],
-          on_export:Callable[[],None],selected_index:int|None,offset:int,on_page:Callable[[int],None],
+          on_export:Callable[[],None],selected_index:int|None,on_page:Callable[[int],None]|None=None,
           refs:dict|None=None,content_width:float|None=None,
           on_locate_audio:Callable[[],None]|None=None,on_dismiss_audio:Callable[[],None]|None=None,
-          on_next_uncertain:Callable[[],None]|None=None,on_open_find:Callable[[],None]|None=None,
+          on_open_find:Callable[[],None]|None=None,
           on_toggle_identities:Callable[[],None]|None=None,identities_hidden:bool=False,
           identities:ft.Control|None=None,order:list[int]|None=None,
           progress:ft.Control|None=None)->ft.Control:
-    """The workbench: one bar across the top, then the speaker list beside the transcript.
+    """The workbench: one toolbar, then the transcript, with the speaker list beside it.
 
-    The speaker list is the left column, at a declared width rather than a share of the
-    space. The open turn is the screen's right-hand pane and is supplied by the shell, so
-    the two never contend for the same room and neither can be squeezed by the other.
+    The speaker list takes the left column at a declared width when there is room for both;
+    the open turn is the right-hand pane and is supplied by the shell. Everything that is
+    not the transcript is either a fixed width or absent, so the transcript gets whatever is
+    left rather than whatever survives.
     """
     stats=speaker_statistics(state.transcript_segments)
     colors=speaker_index(state)
-    row_refs=refs.setdefault("rows",{}) if refs is not None else None
 
-    # The list only takes the column when both panes still fit; the caller floats it otherwise.
     identity_width=float(t.IDENTITY_PANE_WIDTH) if identities is not None else 0.0
     measure=reading_measure(content_width,identity_width)
     shown=list(range(len(state.transcript_segments))) if order is None else order
     listing=transcript_list(state.transcript_segments,shown,state.speaker_mapping,colors,
-        selected_index,offset,PAGE_SIZE,on_select,on_page,row_refs,measure)
-    # Nothing between the bar and the text is permanent. Every row below appears only when
-    # it has something to say, so an ordinary transcript starts straight under the bar.
+        selected_index,on_select,refs,measure)
+
     column:list[ft.Control]=[]
-    # Progress sits directly under the bar, above everything conditional: it is the one
-    # thing on this screen that is always worth a glance.
-    if progress is not None: column.append(progress)
-    # The reconnect prompt is dismissible: the transcript is fully usable without audio.
+    # Only what is actionable, and only when it is. On an ordinary transcript the toolbar
+    # sits straight on the text.
     if state.audio_missing and not state.audio_banner_dismissed and on_locate_audio and on_dismiss_audio:
         column.append(audio_missing_banner(on_locate_audio,on_dismiss_audio))
-    uncertain=_uncertain_strip(state,on_next_uncertain)
-    if uncertain is not None: column.append(uncertain)
     column.append(listing)
-    reading=ft.Container(ft.Column(column,spacing=t.S12,expand=True),expand=True,
-        padding=ft.Padding(t.S16 if identities is not None else 0,0,0,0),
+    reading=ft.Container(ft.Column(column,spacing=t.S8,expand=True),expand=True,
+        padding=ft.Padding(0,0,t.S8 if identities is not None else 0,0),
         clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
-    panes:list[ft.Control]=[]
+    panes:list[ft.Control]=[reading]
     if identities is not None:
-        # Declared width, no expand: a container given both grows to the row and ignores the
-        # width, which is exactly how this column ended up ninety pixels wide before.
+        # Declared width, no expand: a container given both grows to the row and ignores
+        # the width, which is how this column once ended up ninety pixels wide.
+        # It sits on the far side: the editing pane and the transcript are the two surfaces
+        # you look at together, so nothing goes between them.
         panes.append(ft.Container(identities,width=identity_width,
-            padding=ft.Padding(0,0,t.S16,0),clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            border=ft.Border(right=ft.BorderSide(t.HAIRLINE,t.outline()))))
-    panes.append(reading)
+            padding=t.CARD_PADDING,bgcolor=t.surface(),border_radius=t.RADIUS,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE))
     return ft.Column([
-        _workbench_bar(state,len(stats),on_open_find,on_export,on_toggle_identities,identities_hidden),
-        ft.Row(panes,spacing=0,expand=True)],spacing=t.S12,expand=True)
+        _workbench_bar(state,len(stats),on_open_find,on_export,on_toggle_identities,
+            identities_hidden,progress,content_width),
+        ft.Row(panes,spacing=0,expand=True)],spacing=t.S8,expand=True)
 
 
 def word_ribbon(item:TranscriptSegment,on_seek:Callable[[float],None])->ft.Control:
@@ -259,8 +271,7 @@ def word_ribbon(item:TranscriptSegment,on_seek:Callable[[float],None])->ft.Contr
     return ft.Container(ft.Column([
         ft.Text(spans=spans,selectable=True),
         ft.Text(s.SEEK_WORDS,size=t.TYPE_CAPTION,color=t.muted())],spacing=t.S8),
-        padding=t.S12,border=ft.Border.all(t.HAIRLINE,t.outline()),border_radius=t.R_SM,
-        bgcolor=t.surface_variant())
+        padding=t.S12,border_radius=t.R_SM,bgcolor=t.surface_variant())
 
 
 def _reassign_dropdown(item:TranscriptSegment,state:AppState,index:int,
@@ -274,8 +285,7 @@ def _reassign_dropdown(item:TranscriptSegment,state:AppState,index:int,
     speakers=sorted({turn.speaker_id for turn in state.transcript_segments})
     return ft.Dropdown(value=item.speaker_id,expand=True,dense=True,
         height=t.FIELD_HEIGHT_DENSE,text_size=t.TYPE_SECONDARY,
-        label=s.REASSIGN_LABEL,label_style=ft.TextStyle(size=t.TYPE_LABEL,color=t.muted()),
-        tooltip=s.REASSIGN_TOOLTIP,
+        hint_text=s.REASSIGN_LABEL,tooltip=s.REASSIGN_TOOLTIP,
         border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
         color=t.on_surface(),content_padding=ft.Padding(t.S12,t.S4,t.S8,t.S4),
         disabled=on_reassign is None or len(speakers)<2,
@@ -286,6 +296,38 @@ def _reassign_dropdown(item:TranscriptSegment,state:AppState,index:int,
         on_select=(lambda e:on_reassign(index,e.control.value or item.speaker_id)) if on_reassign else None)
 
 
+def mode_switch(words_mode:bool,on_words_mode:Callable[[],None])->ft.Control:
+    """Two named options above the text, instead of one icon among four others.
+
+    Switching between correcting the wording and clicking a word to hear it is the single
+    most repeated move on this screen. It was a small unlabelled icon sharing a row with
+    revert and play, which made a constant action feel like a hidden one. Here it is a
+    labelled switch sitting directly on top of the thing it switches, and Ctrl+K does the
+    same without the mouse.
+    """
+    def option(label:str,active:bool,icon:ft.IconData)->ft.Control:
+        # An editor tab, not a pill: square, flush with the surface below it, and marked by
+        # a rule along its top edge. The open one is the same colour as the text under it,
+        # so the two read as one sheet rather than as a control sitting above a box.
+        return ft.Container(ft.Row([ft.Icon(icon,size=14,
+                color=t.primary() if active else t.muted()),
+            ft.Text(label,size=t.TYPE_LABEL,
+                weight=ft.FontWeight.W_600 if active else ft.FontWeight.W_400,
+                color=t.on_surface() if active else t.on_surface_variant(),no_wrap=True)],
+            spacing=t.S8,tight=True),
+            padding=ft.Padding(t.S12,t.S8,t.S12,t.S8),
+            bgcolor=t.surface() if active else None,
+            border=ft.Border(top=ft.BorderSide(2,t.primary() if active else ft.Colors.TRANSPARENT)),
+            ink=True,ink_color=t.primary_soft(),
+            on_click=None if active else (lambda e:on_words_mode()))
+    strip=ft.Container(ft.Row([option(s.MODE_EDIT,not words_mode,ft.Icons.EDIT_OUTLINED),
+        option(s.MODE_WORDS,words_mode,ft.Icons.TOUCH_APP_OUTLINED),
+        ft.Container(expand=True)],spacing=0),
+        bgcolor=t.surface_variant(),
+        border=ft.Border(bottom=ft.BorderSide(t.HAIRLINE,t.outline())))
+    return strip
+
+
 def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_revert:Callable[[int],None],
               on_play:Callable[[int],None],refs:dict|None=None,
               on_close:Callable[[],None]|None=None,on_seek:Callable[[float],None]|None=None,
@@ -294,7 +336,15 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
               on_reassign:Callable[[int,str],None]|None=None,
               on_checked:Callable[[int,bool],None]|None=None,
               words_mode:bool=False,on_words_mode:Callable[[],None]|None=None,
-              show_original:bool=False,on_show_original:Callable[[],None]|None=None)->ft.Control:
+              show_original:bool=False,on_show_original:Callable[[],None]|None=None,
+              on_locate:Callable[[],None]|None=None,
+              on_note:Callable[[int,str],None]|None=None,note_open:bool=False,
+              on_toggle_note:Callable[[],None]|None=None,
+              on_mark:Callable[[int,int,int,str,str],None]|None=None,
+              on_selection_comment:Callable[[int,int,int],None]|None=None,
+              on_clear_marks:Callable[[int,int,int],None]|None=None,
+              on_drop_mark:Callable[[int,object],None]|None=None,
+              highlight_labels:list[str]|None=None)->ft.Control:
     """One turn, shown once.
 
     The panel holds a single text surface. It is the editor by default and the clickable
@@ -303,28 +353,46 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
     changed and the researcher asks to compare.
     """
     def heading(title:str)->ft.Control:
-        row=[ft.Text(title,size=t.TYPE_HEADING,weight=ft.FontWeight.W_600,color=t.on_surface(),expand=True)]
+        actions:list[ft.Control]=[]
+        if on_locate is not None:
+            actions.append(icon_button(ft.Icons.MY_LOCATION,s.INSPECTOR_LOCATE,
+                lambda e:on_locate(),size=15))
         if on_close is not None:
-            row.append(icon_button(ft.Icons.CLOSE,s.CLOSE_INSPECTOR,lambda e:on_close(),size=17))
-        return ft.Row(row,spacing=t.S8,vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            actions.append(icon_button(ft.Icons.CLOSE,s.CLOSE_INSPECTOR,lambda e:on_close(),size=15))
+        return panel_title(title,ft.Row(actions,spacing=0) if actions else None)
 
     if index is None or index>=len(state.transcript_segments):
-        return ft.Column([heading(s.INSPECTOR_EMPTY_TITLE),
-            ft.Text(s.INSPECTOR_EMPTY_BODY,size=t.TYPE_SECONDARY,color=t.on_surface_variant())],spacing=t.S8)
+        return ft.Column([heading(s.INSPECTOR_TITLE),
+            ft.Text(s.INSPECTOR_EMPTY_BODY,size=t.TYPE_SECONDARY,color=t.on_surface_variant()),
+            ft.Text(s.INSPECTOR_EMPTY_HINT,size=t.TYPE_CAPTION,color=t.muted())],spacing=t.S8)
     item=state.transcript_segments[index]
     features=feature_state(state.effective_capabilities)
     colors=speaker_index(state)
     edited=item.corrected_text is not None
     timed=bool(features["word_timestamps"] and item.words and on_seek)
 
-    field=ft.TextField(label=s.INSPECTOR_CORRECTED,value=item.text,multiline=True,min_lines=6,max_lines=14,
-        text_size=t.TYPE_BODY,border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
-        color=t.on_surface(),label_style=ft.TextStyle(size=t.TYPE_LABEL,color=t.muted()),
+    field=ft.TextField(value=item.text,multiline=True,min_lines=8,max_lines=18,
+        text_size=t.TYPE_BODY,border_radius=t.RADIUS,border_color=t.outline(),
+        focused_border_color=t.primary(),focused_border_width=1,border_width=1,
+        content_padding=ft.Padding(t.S12,t.S8,t.S12,t.S8),color=t.on_surface(),
         on_focus=(lambda e:on_typing(True)) if on_typing else None,
         on_blur=(lambda e:on_typing(False)) if on_typing else None)
+    # Every keystroke reports back. Without this the value on the Python side is whatever
+    # it was when the box last lost focus, so Ctrl+Enter pressed with the caret still in
+    # the box saved the OLD sentence — which is why some edits were kept and some were not.
+    field.on_change=lambda e:setattr(field,"value",e.control.value)
     if refs is not None: refs["inspector_field"]=field
-    # The one text slot. Words mode is only offered when the provider actually timed words.
-    surface=word_ribbon(item,on_seek) if (words_mode and timed) else field
+    # The one text slot, with its own switch on top. Words mode is only offered when the
+    # provider actually timed the words.
+    slot:list[ft.Control]=[]
+    if timed and on_words_mode is not None:
+        slot.append(mode_switch(words_mode,on_words_mode))
+    slot.append(word_ribbon(item,on_seek) if (words_mode and timed) else field)
+    # STRETCH here as well. Fixing only the outer column left the box inside this one at
+    # its intrinsic width, which is why widening the panel changed nothing twice over: a
+    # Column's alignment does not reach through a Column nested inside it.
+    surface=ft.Column(slot,spacing=t.S8,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     checked=ft.Checkbox(s.MARK_CHECKED,value=item.checked,tooltip=s.MARK_CHECKED_TOOLTIP,
         active_color=t.primary(),check_color=t.on_primary(),
@@ -333,44 +401,115 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
         on_change=(lambda e:on_checked(index,bool(e.control.value))) if on_checked else None)
     if refs is not None: refs["inspector_checked"]=checked
 
-    meta:list[ft.Control]=[]
-    if features["confidence_display"] and item.confidence is not None:
-        meta.append(ft.Text(s.INSPECTOR_CONFIDENCE.format(percent=int(item.confidence*100)),
-            size=t.TYPE_LABEL,color=t.on_surface_variant()))
-    if features["word_timestamps"] and item.words:
-        meta.append(ft.Text(s.INSPECTOR_WORDS.format(count=len(item.words)),size=t.TYPE_LABEL,color=t.muted()))
+    # Marking a phrase: bold, one of three highlighters, or a comment on those words alone.
+    # Offered only in the editor, because a selection is what it acts on and the word ribbon
+    # has no selection — its words are buttons that seek the recording.
+    marks=list(getattr(item,"annotations",None) or [])
+    marking_offered=on_mark is not None and not (words_mode and timed)
+    if marking_offered:
+        surface.controls.append(marking(field,marks,highlight_labels,
+            lambda a,b,kind,slot:on_mark(index,a,b,kind,slot),
+            (lambda a,b:on_selection_comment(index,a,b)) if on_selection_comment else (lambda a,b:None),
+            (lambda a,b:on_clear_marks(index,a,b)) if on_clear_marks else (lambda a,b:None),
+            refs))
 
-    actions:list[ft.Control]=[_reassign_dropdown(item,state,index,on_reassign,on_typing)]
-    if timed and on_words_mode is not None:
-        actions.append(icon_button(ft.Icons.EDIT_OUTLINED if words_mode else ft.Icons.TOUCH_APP_OUTLINED,
-            s.EDIT_TEXT if words_mode else s.SEEK_WORDS,lambda e:on_words_mode(),
-            color=t.primary() if words_mode else None))
-    actions.append(icon_button(ft.Icons.SCHEDULE,s.INSERT_TIMESTAMP,
-        (lambda e:on_stamp()) if on_stamp else None,disabled=on_stamp is None or words_mode))
-    actions.append(icon_button(ft.Icons.RESTORE,s.REVERT_CORRECTION,lambda e:on_revert(index)))
-    actions.append(icon_button(ft.Icons.PLAY_ARROW,s.PLAY_RANGE,lambda e:on_play(index)))
+    rule=lambda:ft.Container(height=t.HAIRLINE,bgcolor=t.outline())
+
+    # Who said it, and when. The panel could say everything about a turn except the one
+    # thing checked first and by ear — where in the recording it is. The stamp is the play
+    # control now, which also takes an unlabelled icon out of the row below.
+    name=apply_speaker_mapping(item,state.speaker_mapping)
+    stamp=ft.Container(ft.Row([ft.Icon(ft.Icons.PLAY_ARROW,size=13,color=t.primary()),
+            ft.Text(f"{format_timestamp(item.absolute_start)}–{format_timestamp(item.absolute_end)}",
+                size=t.TYPE_CAPTION,font_family=t.MONO,color=t.on_surface_variant(),no_wrap=True)],
+            spacing=3,tight=True,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=ft.Padding(t.S8,3,t.S8,3),border_radius=t.R_SM,bgcolor=t.surface_variant(),
+        ink=True,ink_color=t.primary_soft(),tooltip=s.PLAY_RANGE,
+        on_click=lambda e:on_play(index))
+
+    # One line of provenance where four used to stack. The raw diarization label appears
+    # only when it differs from the name; until it is renamed it is the same fact twice.
+    facts=[s.INSPECTOR_POSITION.format(index=index+1,total=len(state.transcript_segments))]
+    # The raw diarization label only earns its place where labels are per fragment and
+    # matching a turn to one is part of the work. On a global transcript the name says it,
+    # and the Speakers pane lists the raw label under every name anyway.
+    if features["speaker_reconciliation"]: facts.append(item.speaker_id)
+    if features["confidence_display"] and item.confidence is not None:
+        facts.append(s.INSPECTOR_CONFIDENCE.format(percent=int(item.confidence*100)))
+    if features["word_timestamps"] and item.words:
+        facts.append(s.INSPECTOR_WORDS.format(count=len(item.words)))
+
+    # Save sits directly under the box it saves, taking the width, with the two corrections
+    # that undo or time-stamp it beside. It used to come after the marking preview and the
+    # comment list, which on a marked turn put the screen's most repeated action below the
+    # fold of its own panel.
+    save=secondary_button(s.SAVE_CORRECTION,lambda e:on_save(index,field.value or ""),
+        ft.Icons.CHECK,disabled=words_mode)
+    save.expand=True; save.tooltip=s.SAVE_CORRECTION_TOOLTIP
+    committing=ft.Row([save,
+        icon_button(ft.Icons.SCHEDULE,s.INSERT_TIMESTAMP,
+            (lambda e:on_stamp()) if on_stamp else None,disabled=on_stamp is None or words_mode),
+        icon_button(ft.Icons.RESTORE,s.REVERT_CORRECTION,lambda e:on_revert(index))],
+        spacing=t.S4,vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     body:list[ft.Control]=[
         heading(s.INSPECTOR_TITLE),
-        ft.Row([ft.Container(width=10,height=10,border_radius=t.R_PILL,bgcolor=t.speaker_color(colors.get(item.speaker_id,0))),
-            ft.Text(apply_speaker_mapping(item,state.speaker_mapping),size=t.TYPE_SUBHEADING,
-                weight=ft.FontWeight.W_600,color=t.on_surface(),expand=True),checked],
+        ft.Row([ft.Container(width=8,height=8,border_radius=t.R_PILL,
+                bgcolor=t.speaker_color(colors.get(item.speaker_id,0))),
+            ft.Text(name,size=t.TYPE_BODY,weight=ft.FontWeight.W_600,color=t.on_surface(),
+                max_lines=1,overflow=ft.TextOverflow.ELLIPSIS,expand=True),stamp],
             spacing=t.S8,vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        ft.Row([ft.Text(item.speaker_id,size=t.TYPE_CAPTION,color=t.muted(),expand=True),*meta],
-            spacing=t.S8),
-        ft.Divider(height=1,color=t.outline()),
+        ft.Row([ft.Text(" · ".join(facts),size=t.TYPE_CAPTION,color=t.muted(),
+                max_lines=1,overflow=ft.TextOverflow.ELLIPSIS,expand=True),checked],
+            spacing=t.S8,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        rule(),
         surface,
-        ft.Row(actions,spacing=t.S4,vertical_alignment=ft.CrossAxisAlignment.CENTER)]
-    # The original only exists as a thing to look at once the text has been changed.
+        committing]
+
+    # What the marking produced, read after the text rather than before the save button.
+    if marking_offered and marks:
+        body.append(ft.Text(s.MARK_PREVIEW,size=t.TYPE_CAPTION,color=t.muted()))
+        body.append(mark_preview(item.text,marks,highlight_labels))
+        body.extend(comment_list(marks,(lambda m:on_drop_mark(index,m)) if on_drop_mark else None))
+
+    # Everything below the rule is occasional: the turn belongs to someone else, it needs a
+    # note, or the original wording is worth a look. None of it is in the way of correcting.
+    occasional:list[ft.Control]=[]
+    row:list[ft.Control]=[
+        ft.Text(s.REASSIGN_LABEL,size=t.TYPE_CAPTION,color=t.muted(),no_wrap=True),
+        _reassign_dropdown(item,state,index,on_reassign,on_typing)]
+    if on_toggle_note is not None:
+        carries=bool((item.note or "").strip())
+        row.append(icon_button(ft.Icons.COMMENT if carries else ft.Icons.ADD_COMMENT_OUTLINED,
+            s.NOTE_PRESENT if carries else s.NOTE_ADD,lambda e:on_toggle_note(),
+            color=t.primary() if carries else None))
+    occasional.append(ft.Row(row,spacing=t.S4,vertical_alignment=ft.CrossAxisAlignment.CENTER))
+    # Labelled, not a third icon in the row above: it only appears on a turn that has been
+    # changed, and on that turn it is worth being able to read what it does.
     if edited and on_show_original is not None:
-        body.append(ft.Row([tertiary_button(s.HIDE_ORIGINAL if show_original else s.SHOW_ORIGINAL,
+        occasional.append(ft.Row([tertiary_button(
+            s.HIDE_ORIGINAL if show_original else s.SHOW_ORIGINAL,
             lambda e:on_show_original(),ft.Icons.HISTORY_TOGGLE_OFF)],spacing=0))
-        if show_original:
-            body.append(ft.Container(ft.Text(item.original_text,size=t.TYPE_SECONDARY,
-                color=t.on_surface_variant(),selectable=True),padding=t.S12,
-                bgcolor=t.surface_variant(),border_radius=t.R_SM,
-                border=ft.Border.all(t.HAIRLINE,t.outline())))
-    body.append(secondary_button(s.SAVE_CORRECTION,lambda e:on_save(index,field.value or ""),
-        ft.Icons.CHECK,disabled=words_mode))
-    body.append(ft.Text(s.MARK_NEXT_HINT,size=t.TYPE_CAPTION,color=t.muted()))
-    return ft.Column(body,spacing=t.S12,scroll=ft.ScrollMode.AUTO)
+    if edited and show_original:
+        occasional.append(ft.Container(ft.Text(item.original_text,size=t.TYPE_SECONDARY,
+            color=t.on_surface_variant(),selectable=True),padding=t.S12,
+            bgcolor=t.surface_variant(),border_radius=t.R_SM))
+    if on_note is not None and (note_open or (item.note or "").strip()):
+        note=ft.TextField(label=s.NOTE_LABEL,value=item.note,multiline=True,min_lines=2,max_lines=5,
+            text_size=t.TYPE_SECONDARY,border_radius=t.R_SM,border_color=t.outline(),
+            focused_border_color=t.primary(),color=t.on_surface(),
+            label_style=ft.TextStyle(size=t.TYPE_LABEL,color=t.muted()),
+            on_focus=(lambda e:on_typing(True)) if on_typing else None,
+            on_blur=(lambda e:on_typing(False)) if on_typing else None)
+        note.on_change=lambda e:(setattr(note,"value",e.control.value),on_note(index,e.control.value))[0]
+        if refs is not None: refs["inspector_note"]=note
+        occasional.append(note)
+        occasional.append(ft.Text(s.NOTE_HINT,size=t.TYPE_CAPTION,color=t.muted()))
+    body.append(rule())
+    body.extend(occasional)
+    # STRETCH, not the default START. A Column left to itself gives every child its
+    # intrinsic width, so the editing box sat at whatever a TextField asks for — about
+    # three hundred pixels — no matter how wide the panel around it grew. Widening the
+    # panel could never have fixed it; this is the line that does.
+    return ft.Column(body,spacing=t.S8,scroll=ft.ScrollMode.AUTO,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH)

@@ -12,16 +12,17 @@ from __future__ import annotations
 APP_NAME = "TranscriptionLab"
 # The wordmark breathes as two words; the window title and the taskbar keep the one-word name.
 BRAND_WORDMARK = "Transcription Lab"
-APP_TAGLINE = "Transcribe and review long group interviews"
+NAV_HOME_TOOLTIP = "Home — what this application does, and how to use it"
+APP_TAGLINE = "Transcribe and review interview recordings"
 
 # ── Orientation: where the researcher is in the four-step flow ────────────────
 STEP_EYEBROW = "STEP {current} OF {total}"
 NEXT_RECORDING = "Next: enter your provider key and start transcribing."
 NEXT_TRANSCRIPTION = "Next: give the detected voices real names."
-NEXT_SPEAKERS = "Next: choose a format and save the transcript."
 NEXT_EXPORT = "Saved files open in Windows; the project keeps your corrections for later."
 
 # ── Field guidance ────────────────────────────────────────────────────────────
+API_MISSING_START = "Add your provider's API key in Settings before starting."
 KEY_HELPER = "Kept in memory for this session only, never written to disk."
 # Shown on the first screen while no key has been entered, so a new user on a fresh
 # install is told what they need before they pick a file rather than after.
@@ -37,11 +38,15 @@ RANGE_COST_NOTE = "Only the selected portion is sent to the provider, so it is w
 # ── Navigation and shell ──────────────────────────────────────────────────────
 NAV_RECORDING = "Recording"
 NAV_TRANSCRIPTION = "Transcription"
-NAV_SPEAKERS = "Speakers"
+NAV_SPEAKERS = "Review"
 NAV_EXPORT = "Export"
 NAV_LOCKED = "Finish the previous step to open {step}"
 OPEN_PROJECT = "Open project"
 SAVE_PROJECT = "Save project"
+SAVE_PROJECT_TOOLTIP = "Choose where to save the project (Ctrl+S)"
+SAVE_PROJECT_TO = "Save to {name} (Ctrl+S) · Ctrl+Shift+S saves elsewhere"
+SAVED_TO = "Saved to {name}."
+SAVE_PROJECT_EMPTY = "There is no transcript to save yet"
 NEW_PROJECT = "New project"
 SETTINGS = "Settings"
 TOGGLE_THEME = "Switch theme"
@@ -50,7 +55,9 @@ UNTITLED_PROJECT = "Untitled project"
 SAVED = "Saved"
 UNSAVED = "Unsaved changes"
 API_CONFIGURED = "API key set"
-API_MISSING = "No API key"
+API_MISSING = "Add an API key"
+API_CONFIGURED_TOOLTIP = "The key for this provider is set. Open Settings to change it."
+API_MISSING_TOOLTIP = "Open Settings to enter your provider's key"
 
 # ── Collapse controls ─────────────────────────────────────────────────────────
 COLLAPSE_SECTION = "Minimise this section"
@@ -65,8 +72,10 @@ WINDOW_RESTORE = "Restore down"
 WINDOW_CLOSE = "Close"
 
 # ── Welcome ───────────────────────────────────────────────────────────────────
-WELCOME_TITLE = "Transcription for group interviews"
-WELCOME_BODY = "Process long recordings, identify who spoke, and export documents ready for analysis."
+WELCOME_TITLE = "Turn an interview recording into a transcript you can work with"
+WELCOME_BODY = ("One person or twelve, twenty minutes or three hours. The recording is "
+                "transcribed, split by speaker, and handed to you to correct, mark up and "
+                "export.")
 WELCOME_FACT_LOCAL = "The original recording stays on this computer and is never modified."
 WELCOME_FACT_UPLOAD = "Only what the chosen provider needs is sent; Settings states exactly what leaves the machine."
 WELCOME_FACT_KEY = "API keys live in memory only and are never saved."
@@ -74,21 +83,60 @@ WELCOME_START = "Get started"
 WELCOME_HOW = "How it works"
 
 HELP_TITLE = "How it works"
-HELP_NEW_HEADING = "Transcribe a new recording"
-HELP_STEPS = ("1. Choose a recording stored on this computer.",
-              "2. Enter the provider API key and start transcribing.",
-              "3. Review who spoke and correct the text.",
-              "4. Export Word, plain text, or JSON.")
-HELP_OPEN_HEADING = "Continue an earlier interview"
-HELP_OPEN_STEPS = ("1. Click Open project in the sidebar, or the button on this screen.",
-                   "2. Choose the .transcript.json file saved from a previous session.",
-                   "3. The transcript, speaker names and corrections load exactly as you left them.",
-                   "4. Nothing is re-transcribed, so no API credit is spent.")
+HELP_NEW_HEADING = "Transcribe a recording"
+HELP_STEPS = (
+    "1. Settings: paste your API key and pick the language of the recording. The key is "
+    "held in memory for this session and never written to disk.",
+    "2. Recording: choose the audio file. Your file is never modified — a copy is what "
+    "gets prepared and sent. Set a range here if you only want part of it.",
+    "3. Transcription: press Start and wait. What you chose goes to the provider you "
+    "picked and only to that provider. A two-hour file takes several minutes.",
+    "4. Review: click a turn, listen, fix the wording, press Ctrl+S. Name a speaker once "
+    "in the left panel and every turn of theirs is renamed. Tick turns off as you check "
+    "them.",
+    "5. Export: Word to read and comment on, plain text to quote from, JSON with every "
+    "timestamp and confidence score. Save the project first if you want to come back.")
+HELP_OPEN_STEPS = (
+    "1. Open project, from the sidebar or the first screen.",
+    "2. Pick the .transcript.json you saved.",
+    "3. Everything comes back: the text, the speaker names, your corrections, your "
+    "highlights, your comments and how far you had checked.",
+    "4. Press Resume to go to the turn you stopped on.",
+    "5. Nothing is sent anywhere and no API credit is spent.")
+HELP_OPEN_HEADING = "Come back to one you started"
 HELP_SHORTCUTS_HEADING = "While reviewing"
-HELP_SHORTCUTS = ("Space plays or pauses — except while you are typing in a text field.",
-                  "Ctrl+Enter marks the open turn reviewed and moves to the next unchecked one.",
-                  "Click any turn to jump the audio to that exact second.",
-                  "Click a word to jump to that word, when the provider timed them.")
+
+
+def shortcuts(skip_seconds: int) -> tuple[str, ...]:
+    """The shortcut list, with the jump length filled in from the token that sets it.
+
+    The number lives in design_tokens.SKIP_SECONDS. Formatting it here rather than typing
+    it twice is why the help could not go on claiming ten seconds after it became five.
+    """
+    return tuple(line.format(seconds=skip_seconds) for line in HELP_SHORTCUTS)
+
+
+HELP_SHORTCUTS = ("Ctrl+S — save the correction you are typing, and the project with it.",
+                  "Ctrl+Shift+S — save to a different file. Ctrl+O — open one.",
+                  "Ctrl+Enter — save the correction, mark the turn reviewed, open the next "
+                  "unchecked one.",
+                  "Ctrl+W — play or pause. It does nothing else, anywhere, ever.",
+                  "F4 does the same, for a foot pedal mapped to a function key.",
+                  "Ctrl+Left / Ctrl+Right — {seconds} seconds back or forward, anywhere.",
+                  "Ctrl+Up / Ctrl+Down — the previous or the next turn, anywhere.",
+                  "Space and the plain arrows do the same, but only when no text field "
+                  "has focus.",
+                  "Ctrl+P — play the open turn from its start.",
+                  "Select a phrase, then: Ctrl+B bold, Ctrl+1 / Ctrl+2 / Ctrl+3 highlight, "
+                  "Ctrl+D comment on it, Ctrl+0 take the marks off.",
+                  "Ctrl+M — add a comment on the whole turn, rather than on a phrase.",
+                  "Ctrl+K — switch the open turn between editing and playing by word.",
+                  "Ctrl+T — insert the current playback time into the text.",
+                  "Ctrl+J — bring the list back to the turn you have open.",
+                  "Ctrl+E — show only the turns still unchecked. Ctrl+R — resume where you "
+                  "left off.",
+                  "Ctrl+F — find and replace. Esc closes it.",
+                  "The open turn follows the audio; the crosshair in the player stops that.")
 HELP_UNDERSTOOD = "Got it"
 
 # ── Opening an existing project ───────────────────────────────────────────────
@@ -119,6 +167,11 @@ QUALITY_COMPATIBLE = "AAC mono {bitrate} kbps"
 STRATEGY_COPY = "Stream copy when safe, re-encode only if needed"
 STRATEGY_ENCODE = "Re-encode every fragment"
 QUALITY_TITLE = "Audio preparation"
+# The recording screen comes before the provider is settled, so it names no service. The
+# exact destination is stated on Transcription and in Settings, beside the provider picker.
+QUALITY_TRANSFER = ("The original recording is never modified. A copy is prepared here and "
+                    "sent to the API provider you choose; Settings names that provider and "
+                    "states exactly what leaves this computer.")
 RADIO_ORIGINAL = "Keep the compressed source when it is safe"
 RADIO_COMPATIBLE = "Force AAC mono for compatibility"
 
@@ -141,6 +194,10 @@ COMPRESS_DONE = "Compact copy ready: {before} reduced to {after}. Audio quality 
 
 # ── Transcription screen ──────────────────────────────────────────────────────
 TRANSCRIPTION_TITLE = "Transcription"
+TRANSCRIPTION_DONE = "{turns} turns transcribed"
+TRANSCRIPTION_DONE_SUBTITLE = "This recording has been transcribed."
+TRANSCRIPTION_DONE_BODY = ("Review it on the Speakers step. To transcribe something else, "
+                           "start a new project — this one is not overwritten.")
 TRANSCRIPTION_SUBTITLE = "Enter the provider key and start. The app stays usable while it runs."
 START_TRANSCRIPTION = "Start transcription"
 CANCEL = "Cancel"
@@ -157,14 +214,13 @@ DIAGNOSTICS = "DIAGNOSTICS"
 COPY_DETAILS = "Copy details"
 
 # ── Speakers screen ───────────────────────────────────────────────────────────
-SPEAKERS_TITLE = "Speakers"
+SPEAKERS_TITLE = "Review"
 SPEAKERS_SUBTITLE = "Give each detected voice a real name, then correct any wording."
-IDENTITIES = "Identities"
+IDENTITIES = "Speakers"
 COLLAPSE_IDENTITIES = "Hide the speaker panel"
 EXPAND_IDENTITIES = "Show the speaker panel"
 IDENTITIES_COUNT = "{count} labels detected"
 IDENTITIES_NONE = "No labels from this provider"
-IDENTITY_STATS = "{count} turns · {duration}"
 # One line per identity instead of three: the raw label, the count and the airtime together.
 IDENTITY_META = "{speaker} · {count} turns · {duration}"
 # The diarization state belongs beside the speakers it describes, not above the transcript.
@@ -176,39 +232,45 @@ WORKBENCH_META = "{turns} turns · {speakers} speakers · {duration}"
 PROGRESS_LABEL = "{checked} / {total} checked, {percent}%"
 PROGRESS_NONE = "Nothing checked yet"
 PROGRESS_COMPLETE = "All {total} turns checked"
-ONLY_UNCHECKED = "Only unchecked"
 ONLY_UNCHECKED_TOOLTIP = "Hide the turns already reviewed"
 ALL_CHECKED = "Nothing left unchecked here."
-RESUME = "Resume"
 RESUME_TOOLTIP = "Go back to {stamp}, where you left off"
 MARK_CHECKED = "Checked"
 MARK_CHECKED_TOOLTIP = "Mark this turn reviewed"
-MARK_NEXT_HINT = "Ctrl+Enter marks this turn and moves to the next unchecked one."
+SAVE_STATUS_SAVED = "Saved to {name}"
+SAVE_STATUS_UNSAVED = "Unsaved changes · {name}"
+SAVE_STATUS_NEW = "Not saved to a file yet"
+SAVE_STATUS_UNTITLED = "No project file"
+SAVE_CORRECTION_TOOLTIP = ("Ctrl+S saves it. Ctrl+Enter saves it, marks the turn reviewed "
+                           "and opens the next unchecked one.")
 REVIEW_DONE = "Every turn is checked."
 SHOW_ORIGINAL = "Show original"
 HIDE_ORIGINAL = "Hide original"
 SEEK_WORDS = "Click a word to jump there"
-EDIT_TEXT = "Back to editing"
-APPLY_NAME = "Apply name"
+# The two modes of the one text slot, named on a switch rather than hidden behind an icon.
+MODE_EDIT = "Edit text"
+MODE_WORDS = "Play by word"
+# Where you are, always on screen: the hard part of a two-hour transcript is knowing that.
+INSPECTOR_POSITION = "Turn {index} of {total}"
+INSPECTOR_LOCATE = "Show this turn in the transcript"
+NOTE_LABEL = "Comment"
+NOTE_HINT = "Exported as a Word comment in the margin, never inside the transcript."
+NOTE_ADD = "Add a comment (Ctrl+M)"
+NOTE_PRESENT = "Comment on this turn"
+SAVE_AS = "Save as…"
+FILTER_CLEARED = "Showing every turn again, so this one is visible."
+APPLY_NAME = "Press Enter, or click away, to apply the name"
 CONTINUE_TO_EXPORT = "Continue to export"
-BANNER_GLOBAL = "Speakers were identified across the whole recording. You only need to assign real names."
-BANNER_FRAGMENTED = "Labels were created separately for each fragment. Confirm identities before exporting."
-BANNER_NO_DIARIZATION = "This provider returns no speaker labels; you will name and split speakers manually."
-NOW_SPEAKING = "Now showing"
-PLAY_TURN = "Play this turn"
 
 # ── Audio player ──────────────────────────────────────────────────────────────
-PLAYER_PLAY = "Play"
-PLAYER_PAUSE = "Pause"
-PLAYER_HINT = "Space plays or pauses. Click a turn or a word to jump to it."
-PLAYER_NO_AUDIO = "No recording connected"
-PLAYER_SPEED = "Speed"
+PLAYER_PLAY = "Play (Ctrl+W)"
+PLAYER_PAUSE = "Pause (Ctrl+W)"
+PLAYER_BACK = "Back {seconds} seconds"
+PLAYER_FORWARD = "Forward {seconds} seconds"
+FOLLOW_ON = "Following the audio — the open turn moves with it"
+FOLLOW_OFF = "Follow the audio: keep the open turn on whatever is playing"
 
 # ── Review helpers ────────────────────────────────────────────────────────────
-LOW_CONFIDENCE_COUNT = "{count} words the model was unsure of"
-LOW_CONFIDENCE_TURNS = "{count} turns the model was unsure of"
-LOW_CONFIDENCE_NEXT = "Next uncertain"
-LOW_CONFIDENCE_NONE = "Nothing flagged as uncertain"
 FIND_REPLACE = "Find and replace"
 FIND_LABEL = "Find"
 REPLACE_LABEL = "Replace with"
@@ -224,7 +286,6 @@ FIND_DONE = "Replaced {count} occurrences in {turns} turns."
 FIND_UNDONE = "Replacement undone."
 FIND_HINT = "Text only — timings and speaker labels never change. Esc closes."
 INSERT_TIMESTAMP = "Insert timestamp"
-INSERT_TIMESTAMP_HINT = "Ctrl+T puts the current playback time into the text, for citation."
 
 # ── Reassigning a turn, and merging two labels into one person ────────────────
 REASSIGN_LABEL = "Speaker"
@@ -239,7 +300,7 @@ MERGE_BODY = ("Every turn currently labelled {source} ({count} turns · {duratio
 MERGE_CONFIRM = "Merge"
 MERGE_DONE = "{count} turns moved to {target}."
 MERGE_UNAVAILABLE = "There is only one speaker to merge."
-SETTINGS_REVIEW = "Review and playback"
+SETTINGS_REVIEW = "When you pause the audio"
 SETTINGS_AUTO_REWIND = "Rewind when pausing"
 SETTINGS_AUTO_REWIND_SECONDS = "Rewind by (seconds)"
 SETTINGS_AUTO_REWIND_HINT = "Stepping back a moment means resuming catches the start of the word."
@@ -248,22 +309,16 @@ AUDIO_MISSING_BODY = "The transcript, speakers and corrections are all loaded �
 AUDIO_LOCATE = "Locate audio"
 AUDIO_DISMISS = "Dismiss"
 AUDIO_DIALOG_TITLE = "Locate the recording"
-AUDIO_CONNECTED = "Audio reconnected: {filename}."
 AUDIO_MISMATCH_TITLE = "That file does not match"
 AUDIO_MISMATCH_BODY = ("The project was transcribed from {expected} ({size}). The file you chose is "
                        "{chosen} ({chosen_size}). Use it anyway?")
 AUDIO_UNREADABLE = "That file could not be opened as audio."
-WORDS_HEADING = "Click a word to jump to it"
-PAGE_PREVIOUS = "Previous"
-PAGE_NEXT = "Next"
-PAGE_POSITION = "Page {current} of {total}"
 
 CLOSE_INSPECTOR = "Close inspector"
 INSPECTOR_TITLE = "Selected turn"
-INSPECTOR_EMPTY_TITLE = "Inspector"
-INSPECTOR_EMPTY_BODY = "Select a turn to see details and make corrections."
-INSPECTOR_ORIGINAL = "ORIGINAL TEXT"
-INSPECTOR_CORRECTED = "Corrected text"
+INSPECTOR_EMPTY_BODY = "Pick a turn in the transcript to read it, correct it and mark it."
+INSPECTOR_EMPTY_HINT = ("Ctrl+Up and Ctrl+Down move between turns without the mouse; "
+                        "Home lists every shortcut.")
 INSPECTOR_CONFIDENCE = "Confidence {percent}%"
 INSPECTOR_WORDS = "{count} timed words"
 SAVE_CORRECTION = "Save correction"
@@ -288,22 +343,17 @@ EXPORT_TEXT_BODY = "Plain text, no formatting. Best for pasting into analysis so
 EXPORT_JSON = "JSON"
 EXPORT_JSON_BODY = "Every timestamp, label and confidence score. For coding tools and reproducibility."
 EXPORT_SAVE = "Save {format}"
-EXPORT_NO_DESTINATION = "No destination chosen yet"
 
 # ── Settings screen ───────────────────────────────────────────────────────────
 SETTINGS_TITLE = "Settings"
 SETTINGS_SUBTITLE = "Appearance, transcription provider, and local tools."
 SETTINGS_INTERFACE = "Interface"
+SETTINGS_TEXT_SIZE = "Text size"
 SETTINGS_APPEARANCE = "Appearance"
-APPEARANCE_LIGHT = "Light"
-APPEARANCE_DARK = "Dark"
-APPEARANCE_SYSTEM = "System"
 SHOW_WELCOME_AGAIN = "Show the introduction again"
 SETTINGS_TRANSCRIPTION = "Transcription"
 SETTINGS_PROVIDER = "Transcription provider"
 SETTINGS_LANGUAGE = "Recording language"
-LANGUAGE_RO = "Romanian"
-LANGUAGE_EN = "English"
 SETTINGS_EXPECTED_SPEAKERS = "Expected number of speakers"
 SETTINGS_EXPECTED_HINT = "Leave empty for automatic detection"
 SETTINGS_ENDPOINT_URL = "Endpoint base URL"
@@ -311,20 +361,15 @@ SETTINGS_ENDPOINT_URL_HINT = "https://example.org/v1"
 SETTINGS_ENDPOINT_MODEL = "Model name"
 SETTINGS_ENDPOINT_MODEL_HINT = "whisper-1"
 SETTINGS_ENDPOINT_PRIVACY = "The address, model, and key stay in memory only; they are never saved or exported."
-SETTINGS_SPEAKERS_BOUND = "The expected count is enforced by the diarizer."
-SETTINGS_SPEAKERS_ADVISORY = "The expected count is a hint for this provider."
-SETTINGS_SPEAKERS_UNUSED = "This provider does not diarize, so the speaker count has no effect."
 SETTINGS_AUDIO = "Audio preparation"
 SETTINGS_AUDIO_NOTE = "Applies to the provider that fragments the recording locally."
 SETTINGS_CHUNK_LIMIT = "Fragment limit (MB)"
 SETTINGS_BITRATE = "AAC fallback (kbps)"
 SETTINGS_OVERLAP = "Overlap (seconds)"
 SETTINGS_INCLUDE_PATH = "Include the source path in JSON"
-SETTINGS_DIAGNOSTIC = "Diagnostic logging"
 SETTINGS_SAVE = "Save settings"
 SETTINGS_FFMPEG = "FFmpeg"
 SETTINGS_FFMPEG_UNAVAILABLE = "Unavailable"
-SETTINGS_FFMPEG_NO_PATH = "No path configured"
 CHOOSE_FOLDER = "Choose folder"
 
 # ── Dialogs and notifications ─────────────────────────────────────────────────
@@ -367,6 +412,17 @@ DOC_MODEL = "Model used"
 DOC_PROJECT_ID = "Project identifier"
 DOC_INTERVIEW_DATE = "Interview date"
 DOC_NOTES = "Notes"
+DOC_COMMENT_AUTHOR = "Reviewer"
+DOC_REVIEWER = "Reviewed by"
+EXPORT_SIGNED_BY = "Comments in the Word file will be signed {name}."
+EXPORT_SIGNED_NOBODY = ("Comments in the Word file will be signed “Reviewer”. "
+                        "Put your name in Settings to sign them yourself.")
+SETTINGS_REVIEWER = "Your name"
+SETTINGS_REVIEWER_HINT = "Signs your comments in the exported Word file"
+SETTINGS_REVIEWER_NOTE = ("Left blank, comments are signed “Reviewer” and the "
+                          "document says nothing about who checked it.")
+DOC_LEGEND = "Highlight key"
+DOC_LEGEND_UNNAMED = "Colour {number}"
 DOC_NOTICE = ("Note: transcription and speaker identification are automatic and require "
               "manual verification.")
 
@@ -377,8 +433,96 @@ LOG_GLOBAL_SPEAKERS = "Speakers were identified across the whole recording."
 LOG_FINISHED = "Transcription finished."
 ERROR_ALREADY_RUNNING = "A transcription is already running."
 ERROR_NO_RECORDING = "Select a valid recording first."
-ERROR_SOURCE_MISSING = "The original audio file is no longer available."
-ERROR_FFMPEG_MISSING = "FFmpeg is not available."
 ERROR_METADATA_MISSING = "Recording metadata is missing."
-ERROR_PREVIEW_FAILED = "The audio preview could not be created: {detail}"
 ERROR_INCOMPATIBLE_PROJECT = "This file is not a compatible transcription project."
+
+
+# --- Marking part of a turn -------------------------------------------------------------
+MARK_HINT = "Select text above, then mark it."
+SHORTCUT_FAILED = "That shortcut could not be carried out: {detail}"
+MARK_NEEDS_SELECTION = "Select the words first, then mark them."
+MARK_BOLD = "Bold"
+MARK_COMMENT = "Comment on selection"
+MARK_CLEAR = "Clear marks on the selection"
+MARK_CLEAR_ALL = "Clear every mark on this turn"
+MARK_HIGHLIGHT = "Highlight: {label}"
+MARK_UNNAMED = "Colour {number}"
+TURN_MARKED = "This turn carries a highlight or a comment"
+MARK_PREVIEW = "As it will appear in Word"
+MARK_COUNT = "{count} marked"
+MARK_DETACHED = "{count} mark(s) removed: the text they were on has changed."
+MARK_COMMENT_PROMPT = "Comment on “{quote}”"
+SETTINGS_HIGHLIGHTS = "Highlight key"
+SETTINGS_HIGHLIGHTS_HINT = ("Name each colour so a highlight means something. The names are "
+                            "printed as a key in the exported Word file.")
+SETTINGS_HIGHLIGHT_SLOT = "Colour {number}"
+
+
+# ── Home ─────────────────────────────────────────────────────────────────────
+HOME_TITLE = "Home"
+HOME_SUBTITLE = "What this does, and how to get through it."
+HOME_WHAT_HEADING = "What it is for"
+HOME_WHAT_BODY = (
+    "You give it an audio file. It sends the audio to a transcription service, gets the "
+    "words back split by speaker, and puts them in front of you to correct. One "
+    "interviewee or a room of twelve; twenty minutes or three hours. "
+    "The recording on your disk is never touched. Your work is saved as a project file you "
+    "can close and reopen. When you are finished you export a Word document with the "
+    "speakers named, your highlights on the page and your comments in the margin.")
+HOME_STEPS_HEADING = "The four steps"
+HOME_STEPS = (
+    ("Recording", "Pick the audio file. You can transcribe only part of it — set the range "
+                  "here and nothing outside it is sent."),
+    ("Transcription", "Press Start. The file is prepared, uploaded, and transcribed by the "
+                      "provider you set in Settings. A two-hour recording takes several "
+                      "minutes."),
+    ("Review", "Where you spend the time. Play the audio, fix the words, name the "
+               "speakers, mark the parts that matter, tick off each turn as you check it."),
+    ("Export", "Word to read and comment on, plain text to quote from, JSON for analysis "
+               "software. The project file keeps everything, including your marks."))
+HOME_MARKING_HEADING = "Marking the text"
+HOME_MARKING = (
+    "Select a few words in the open turn. Then: Ctrl+B for bold, Ctrl+1, Ctrl+2 or Ctrl+3 "
+    "for the three highlight colours, Ctrl+D to attach a comment to exactly those words. "
+    "All of it lands in the Word file — real highlighting, real bold, comments in the "
+    "margin pointing at the phrase rather than the paragraph. Name the three colours in "
+    "Settings and the names are printed as a key at the top of the document.")
+HOME_REVIEW_HEADING = "Keeping your place"
+HOME_REVIEW = (
+    "Tick a turn as checked and the counter above the transcript moves. Reopen the project "
+    "and it offers to put you back on the turn you stopped at. “Show only unchecked” "
+    "hides everything you have already been through.")
+HOME_PRIVACY_HEADING = "What leaves this computer"
+HOME_EXPORTS_HEADING = "What you can export"
+HOME_EXPORTS = (
+    ("Word (.docx)", "Speaker names, timestamps, your highlighting and your comments."),
+    ("Plain text (.txt)", "The transcript alone, for quoting into a paper."),
+    ("JSON (.json)", "Every turn with its timings, speaker and confidence, for analysis software."),
+    ("Project (.transcript.json)", "Everything above plus your corrections, marks and progress."))
+HOME_PROVIDERS_HEADING = "Transcription providers"
+HOME_PROVIDERS_BODY = (
+    "Five are supported and they do not return the same things. Some label the speakers "
+    "across the whole recording, one labels them only within a fragment, one does not "
+    "label speakers at all. Settings says what the one you picked will give you, before "
+    "you spend anything on it.")
+HOME_LANGUAGE_HEADING = "Language"
+HOME_LANGUAGE_BODY = (
+    "The interface is English and stays English. The language of the recording is a "
+    "separate setting; it defaults to Romanian, and “Detect automatically” hands "
+    "the question to the provider.")
+HOME_OPEN = "Open a project"
+
+STATUS_TURNS = "{done}/{total}"
+STATUS_TURNS_TOOLTIP = "Turns marked reviewed, out of the whole transcript"
+STATUS_LANGUAGE_TOOLTIP = "The language of the recording, set in Settings"
+
+# The recording's language, offered in Settings. The interface language is not a choice:
+# it is English. "auto" is not a language code — see providers/base.language_code.
+LANGUAGES = (("ro", "Romanian"), ("en", "English"), ("nl", "Dutch"), ("fr", "French"),
+             ("de", "German"), ("es", "Spanish"), ("it", "Italian"),
+             ("auto", "Detect automatically"))
+
+
+def language_name(code: str) -> str:
+    """The label shown for a language code, or the code itself if it is not one of ours."""
+    return dict(LANGUAGES).get(code, code or "—")

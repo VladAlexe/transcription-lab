@@ -19,9 +19,17 @@ def application_theme(dark: bool = False) -> ft.Theme:
         on_surface_variant=palette["on_surface_variant"],
         outline=palette["outline"], outline_variant=palette["outline_strong"],
         error=palette["error"], on_error=palette["on_primary"])
+    # An editor's chrome: a hairline scrollbar with no track, compact density, and no
+    # divider colour loud enough to read as a border.
+    scrollbar = ft.ScrollbarTheme(thickness=6, radius=3, interactive=True,
+                                  thumb_visibility=False, track_visibility=False,
+                                  thumb_color=palette["scrollbar"], track_color=ft.Colors.TRANSPARENT,
+                                  track_border_color=ft.Colors.TRANSPARENT,
+                                  cross_axis_margin=2, main_axis_margin=2, min_thumb_length=32)
     return ft.Theme(color_scheme_seed=t.SEED, color_scheme=colors, use_material3=True,
                     font_family="Segoe UI Variable", scaffold_bgcolor=palette["background"],
-                    divider_color=palette["outline"], visual_density=ft.VisualDensity.COMFORTABLE)
+                    divider_color=palette["outline"], scrollbar_theme=scrollbar,
+                    visual_density=ft.VisualDensity.COMPACT)
 
 
 def elevation() -> ft.BoxShadow:
@@ -32,10 +40,11 @@ def elevation() -> ft.BoxShadow:
 def card(content: ft.Control, padding: int = t.CARD_PADDING, expand: bool | int | None = None,
          variant: bool = False) -> ft.Container:
     """A calm, lifted panel: the only container style the screens use."""
+    # No outline. A card is a lighter surface on a darker ground; that is the whole trick,
+    # and it is why an interface with three tones needs a twentieth of the lines.
     return ft.Container(content=content, padding=padding, expand=expand,
                         bgcolor=t.surface_variant() if variant else t.surface(),
-                        border=ft.Border.all(t.HAIRLINE, t.outline()), border_radius=t.R_LG,
-                        shadow=None if variant else elevation())
+                        border_radius=t.RADIUS, shadow=None)
 
 
 # Collapsed sections are remembered for the session, keyed by card. A view preference does not
@@ -73,8 +82,23 @@ def collapsible_card(title: str, body: ft.Control, subtitle: str = "", padding: 
     chevron.on_click = toggle
     header = ft.Row([ft.Container(section_title(title, subtitle), expand=True), folded, chevron],
                     spacing=t.S12, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-    return ft.Container(ft.Column([header, content], spacing=0), padding=padding, bgcolor=t.surface(),
-                        border=ft.Border.all(1, t.outline()), border_radius=t.R_LG, shadow=elevation())
+    return ft.Container(ft.Column([header, content], spacing=0), padding=padding,
+                        bgcolor=t.surface(), border_radius=t.RADIUS)
+
+
+def panel_title(text: str, trailing: ft.Control | None = None) -> ft.Control:
+    """A panel header the way an editor writes one: small, upper-case, letter-spaced.
+
+    A nineteen-pixel bold heading on a three-hundred-pixel panel is a poster. This says the
+    same thing in a third of the height and stops competing with the content underneath.
+    """
+    row: list[ft.Control] = [ft.Text(text.upper(), size=t.TYPE_META,
+                                     weight=ft.FontWeight.W_600, color=t.muted(), no_wrap=True,
+                                     style=ft.TextStyle(letter_spacing=.6)),
+                             ft.Container(expand=True)]
+    if trailing is not None:
+        row.append(trailing)
+    return ft.Row(row, spacing=t.S8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
 
 def section_title(text: str, subtitle: str = "") -> ft.Control:
@@ -103,7 +127,7 @@ def field_label(text: str) -> ft.Control:
 
 def timestamp(text: str, size: float = t.TYPE_MONO) -> ft.Control:
     """Timestamps stay deliberately quiet: monospaced, muted, never competing with speech."""
-    return ft.Text(text, size=size, color=t.muted(), font_family="Consolas")
+    return ft.Text(text, size=size, color=t.muted(), font_family=t.MONO)
 
 
 def note(text: str, tone: str = "neutral") -> ft.Control:
@@ -118,7 +142,7 @@ def note(text: str, tone: str = "neutral") -> ft.Control:
         ft.Row([ft.Icon(icons.get(tone, ft.Icons.INFO_OUTLINE), size=16, color=color),
                 ft.Text(text, size=t.TYPE_LABEL, color=t.on_surface_variant(), expand=True)], spacing=t.S8),
         padding=ft.Padding(t.S12, t.S8, t.S12, t.S8), bgcolor=t.surface_variant(),
-        border=ft.Border.all(t.HAIRLINE, t.outline()), border_radius=t.R_SM)
+        border_radius=t.RADIUS)
 
 
 def speaker_chip(index: int, label: str, compact: bool = False) -> ft.Control:

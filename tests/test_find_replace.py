@@ -192,10 +192,14 @@ class ReachabilityTests(unittest.TestCase):
         return found
 
     def test_the_review_screen_offers_a_find_and_replace_control(self) -> None:
-        screen = speakers_view.build(self.state(), noop, noop, noop, None, 0, noop,
+        screen = speakers_view.build(self.state(), noop, noop, noop, None, noop,
                                      {"rows": {}, "speakers": {}}, 960, noop, noop, noop, noop)
-        self.assertIn(s.FIND_REPLACE, self.texts(screen),
-                      "there must be a visible way to open find and replace")
+        # It is an icon on the toolbar now rather than a labelled button: the toolbar
+        # carries five things on one line and only the way forward keeps its words.
+        found = [c for c in layout_audit.walk(screen)
+                 if isinstance(c, ft.IconButton) and c.tooltip == s.FIND_REPLACE]
+        self.assertEqual(len(found), 1, "there must be a way to open find and replace")
+        self.assertIsNotNone(found[0].on_click, "and it must be live")
 
     def test_the_bar_shows_a_live_count_before_anything_is_replaced(self) -> None:
         from components.find_replace_bar import find_replace_bar

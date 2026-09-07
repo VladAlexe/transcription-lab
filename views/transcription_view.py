@@ -7,15 +7,14 @@ from app_state import AppState
 from components.buttons import icon_button,primary_button,secondary_button
 from components.progress_timeline import progress_timeline
 from providers import provider_info
-from theme import card,collapsible_card,note,page_title,section_title
+from theme import collapsible_card,note,page_title
 
 
 def build(state:AppState,on_start:Callable[[str],None],on_cancel:Callable[[],None],elapsed:str="00:00")->ft.Control:
     provider=provider_info(state.settings.provider)
     capabilities=provider.capabilities
-    key=ft.TextField(label=provider.key_label,password=True,can_reveal_password=True,value=state.active_api_key,
-        dense=True,height=46,border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
-        color=t.on_surface(),expand=True,helper=ft.Text(s.KEY_HELPER,size=t.TYPE_CAPTION,color=t.muted()))
+    # The key is entered in Settings, beside the provider that decides which key is needed.
+    ready=bool(state.active_api_key)
     progress=state.transcription_progress
     operation=state.activity_log[-1] if state.activity_log else s.READY
     total=len(state.generated_chunks)
@@ -23,16 +22,35 @@ def build(state:AppState,on_start:Callable[[str],None],on_cancel:Callable[[],Non
     current=max(1,int(progress*total)) if state.processing and total else 0
     stage=s.STAGE_FRAGMENT.format(current=current,total=total) if total else s.STAGE_WHOLE_FILE
 
-    credentials=collapsible_card(provider.label,ft.Column([
-        # NOT a wrapped Row: Flet renders wrap=True as a Flutter Wrap, which cannot lay out an
-        # expanding child — the key field would collapse to zero width and disappear. A plain Row
-        # with one expanding child cannot overflow either, because that child absorbs the slack.
-        ft.Row([key,primary_button(s.START_TRANSCRIPTION,lambda e:on_start(key.value or ""),ft.Icons.PLAY_ARROW,
-            disabled=state.processing)],spacing=t.S16,vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        note(capabilities.summary(),"success" if capabilities.global_speakers else "warning"),
-        ft.Text(provider.note,size=t.TYPE_LABEL,color=t.muted())],spacing=t.S16),
-        key="transcription.provider",
-        summary=s.API_CONFIGURED if state.active_api_key else s.API_MISSING)
+    done=bool(state.transcript_segments) and not state.processing
+    if done:
+        # Starting again would discard the transcript underneath without saying so. New
+        # project is the way back, and it asks about unsaved work first.
+        return ft.Column([page_title(s.TRANSCRIPTION_TITLE,s.TRANSCRIPTION_DONE_SUBTITLE,step=2),
+            ft.Container(ft.Row([
+                ft.Icon(ft.Icons.CHECK_CIRCLE,size=18,color=t.primary()),
+                ft.Column([ft.Text(s.TRANSCRIPTION_DONE.format(turns=len(state.transcript_segments)),
+                        size=t.TYPE_BODY,weight=ft.FontWeight.W_600,color=t.on_surface()),
+                    ft.Text(s.TRANSCRIPTION_DONE_BODY,size=t.TYPE_META,
+                        color=t.on_surface_variant())],spacing=1,tight=True,expand=True)],
+                spacing=t.S12,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=t.CARD_PADDING,bgcolor=t.surface(),border_radius=t.RADIUS)],
+            spacing=t.S16)
+
+    credentials=ft.Container(ft.Column([
+        ft.Row([ft.Column([
+                ft.Text(provider.label,size=t.TYPE_BODY,weight=ft.FontWeight.W_600,
+                    color=t.on_surface()),
+                ft.Text(provider.note,size=t.TYPE_META,color=t.muted(),max_lines=2)],
+                spacing=1,tight=True,expand=True),
+            primary_button(s.START_TRANSCRIPTION,
+                lambda e:on_start(state.active_api_key),ft.Icons.PLAY_ARROW,
+                disabled=state.processing or not ready)],
+            spacing=t.S16,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        note(capabilities.summary(),"neutral" if capabilities.global_speakers else "warning"),
+        ft.Text(s.API_MISSING_START if not ready else s.KEY_HELPER,
+            size=t.TYPE_META,color=t.warning() if not ready else t.muted())],spacing=t.S12),
+        padding=t.CARD_PADDING,bgcolor=t.surface(),border_radius=t.RADIUS)
 
     monitor=collapsible_card(s.TRANSCRIPTION_TITLE,ft.Column([
         ft.Row([ft.Column([ft.Text(operation,size=t.TYPE_HEADING,weight=ft.FontWeight.W_600,color=t.on_surface(),max_lines=2),
@@ -57,7 +75,7 @@ def build(state:AppState,on_start:Callable[[str],None],on_cancel:Callable[[],Non
                 ft.Container(expand=True),
                 icon_button(ft.Icons.CONTENT_COPY,s.COPY_DETAILS,
                     on_click=lambda e:e.page.clipboard.set(log))]),
-            ft.Text(log,size=t.TYPE_MONO,font_family="Consolas",selectable=True,color=t.on_surface_variant())],spacing=t.S8),
+            ft.Text(log,size=t.TYPE_MONO,font_family=t.MONO,selectable=True,color=t.on_surface_variant())],spacing=t.S8),
             padding=t.S16,bgcolor=t.surface_variant(),border_radius=t.R_SM)])
 
     return ft.Column([page_title(s.TRANSCRIPTION_TITLE,s.TRANSCRIPTION_SUBTITLE,step=2),

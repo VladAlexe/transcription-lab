@@ -66,7 +66,7 @@ jobs:
               throw "Tag v$tag does not match APP_VERSION $env:APP_VERSION; bump document_export.APP_VERSION and this workflow before tagging"
             }
           }
-          foreach ($icon in @('assets\icon.png','assets\icon.ico','assets\icon_windows.png','assets\icon.svg')) {
+          foreach ($icon in @('assets\icon.png','assets\icon_mark.png','assets\icon.ico','assets\icon_windows.png','assets\icon.svg')) {
             if (-not (Test-Path $icon)) { throw "$icon is missing; regenerate it with tools_make_icon.py" }
           }
 

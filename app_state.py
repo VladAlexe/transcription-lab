@@ -5,6 +5,8 @@ from models import AudioChunk, AudioInfo, MediaToolPaths, TranscriptSegment
 from providers import DEFAULT_PROVIDER, ProviderCapabilities, provider_capabilities
 
 # One key per provider; every one of them lives only in the memory of this process.
+DEFAULT_HIGHLIGHT_LABELS = ("Key quote", "Needs checking", "Follow up")
+
 KEY_FIELDS = {"gladia": "gladia_api_key", "soniox": "soniox_api_key", "deepgram": "deepgram_api_key",
               "openai": "api_key", "compatible": "compatible_api_key"}
 
@@ -15,10 +17,9 @@ class PreparationSettings:
     safe_chunk_mb: float = 23.0
     fallback_bitrate_kbps: int = 48
     overlap_seconds: float = 0.0
-    retain_review_audio: bool = True
     include_source_path_json: bool = False
-    diagnostic_logging: bool = False
     appearance: str = "light"
+    type_scale: float = 1.0
     user_media_tool_path: str = ""
     provider: str = DEFAULT_PROVIDER
     language: str = "ro"
@@ -30,6 +31,14 @@ class PreparationSettings:
     # Pausing steps back this far so resuming catches the start of the word (0 disables).
     auto_rewind_enabled: bool = True
     auto_rewind_seconds: float = 1.5
+    # What each of the three highlight colours means in this study. A colour with no key is
+    # decoration; named here, it becomes a code, and the names travel into the Word file as
+    # a legend so a reader who never opened this application can still read the marking.
+    highlight_labels: list[str] = field(default_factory=lambda: list(DEFAULT_HIGHLIGHT_LABELS))
+    # Who is doing the reviewing. It signs the comments in the exported Word file and is
+    # recorded in the document's own metadata, so a transcript passed to a colleague says
+    # whose corrections it carries instead of being signed by the word "Reviewer".
+    reviewer: str = ""
 
 
 @dataclass

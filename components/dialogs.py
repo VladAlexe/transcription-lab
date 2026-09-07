@@ -31,10 +31,10 @@ def missing_ffmpeg_dialog(page:ft.Page,on_select:Callable[[],None],on_instructio
     command="winget install --id Gyan.FFmpeg -e"
     def copy(e:ft.Event)->None: page.clipboard.set(command)
     body=ft.Column([ft.Text(s.FFMPEG_MISSING_BODY,size=t.TYPE_BODY,color=t.on_surface()),
-        ft.Container(ft.Column([ft.Text(s.FFMPEG_NOT_FOUND.format(tool="ffmpeg"),size=t.TYPE_MONO,font_family="Consolas",color=t.on_surface_variant()),
-            ft.Text(s.FFMPEG_NOT_FOUND.format(tool="ffprobe"),size=t.TYPE_MONO,font_family="Consolas",color=t.on_surface_variant())],spacing=t.S4),
+        ft.Container(ft.Column([ft.Text(s.FFMPEG_NOT_FOUND.format(tool="ffmpeg"),size=t.TYPE_MONO,font_family=t.MONO,color=t.on_surface_variant()),
+            ft.Text(s.FFMPEG_NOT_FOUND.format(tool="ffprobe"),size=t.TYPE_MONO,font_family=t.MONO,color=t.on_surface_variant())],spacing=t.S4),
             padding=t.S12,bgcolor=t.surface_variant(),border=ft.Border.all(1,t.outline()),border_radius=t.R_SM),
-        ft.Row([ft.Text(command,size=t.TYPE_MONO,font_family="Consolas",selectable=True,expand=True,color=t.on_surface()),
+        ft.Row([ft.Text(command,size=t.TYPE_MONO,font_family=t.MONO,selectable=True,expand=True,color=t.on_surface()),
             icon_button(ft.Icons.CONTENT_COPY,s.COPY_COMMAND,copy)])],spacing=t.S12,tight=True)
     modal_dialog(page,s.FFMPEG_MISSING_TITLE,body,[tertiary_button(s.FFMPEG_INSTRUCTIONS,lambda e:on_instructions()),
         secondary_button(s.CHOOSE_FOLDER,lambda e:on_select()),primary_button(s.CLOSE,lambda e:page.pop_dialog())],ft.Icons.BUILD_OUTLINED)

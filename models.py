@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import MISSING, asdict, dataclass, field
 from typing import Any
 
+from annotations import Annotation
+
 
 def _tolerant(cls: type, data: dict[str, Any], fallbacks: dict[str, Any]) -> dict[str, Any]:
     """Keep only the real fields, ignore unknown keys, and fill in any missing required ones.
@@ -95,6 +97,12 @@ class TranscriptSegment:
     # Review progress. Defaulted, so a project saved before this existed simply loads with
     # nothing checked rather than refusing to open.
     checked: bool = False
+    # A researcher's note on this turn. It travels into the Word export as a real comment,
+    # in the margin, rather than as text inside the transcript.
+    note: str = ""
+    # Marks on parts of the turn: a phrase made bold, highlighted, or commented on. A note
+    # says "this turn"; these say "this phrase", which is what quoting an interview needs.
+    annotations: list[Annotation] = field(default_factory=list)
 
     @property
     def text(self) -> str: return self.corrected_text if self.corrected_text is not None else self.original_text
@@ -119,6 +127,9 @@ class TranscriptSegment:
         clean = _tolerant(cls, data, _SEGMENT_FALLBACKS)
         clean["words"] = [item if isinstance(item, Word) else Word.from_dict(item)
                           for item in clean.get("words") or [] if isinstance(item, (Word, dict))]
+        clean["annotations"] = [item if isinstance(item, Annotation) else Annotation.from_dict(item)
+                                for item in clean.get("annotations") or []
+                                if isinstance(item, (Annotation, dict))]
         return cls(**clean)
 
 

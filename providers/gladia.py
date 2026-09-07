@@ -17,7 +17,7 @@ from models import TranscriptSegment, Word
 from typing import Callable
 
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
-                            TranscriptionProvider, emit_progress, format_elapsed, merge_turns, whole_file_segment)
+                            TranscriptionProvider, emit_progress, language_code, format_elapsed, merge_turns, whole_file_segment)
 from providers.http import (JOB_TIMEOUT, POLL_TIMEOUT, RETRY_ATTEMPTS, send, send_json, upload_file, with_retry)
 
 SERVICE = "Gladia"
@@ -41,8 +41,12 @@ def diarization_config(expected_speakers: int) -> dict[str, Any]:
 
 
 def request_payload(audio_url: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0) -> dict[str, Any]:
-    payload: dict[str, Any] = {"audio_url": audio_url, "diarization": True,
-                               "language": language or DEFAULT_LANGUAGE, "detect_language": False}
+    payload: dict[str, Any] = {"audio_url": audio_url, "diarization": True}
+    code = language_code(language, DEFAULT_LANGUAGE)
+    # "Detect automatically" is an option in Settings, not a language code. Sent as one it
+    # would reach Gladia as `language: "auto"`, which is not a language it knows.
+    if code is None: payload["detect_language"] = True
+    else: payload["language"] = code; payload["detect_language"] = False
     config = diarization_config(expected_speakers)
     if config: payload["diarization_config"] = config
     return payload

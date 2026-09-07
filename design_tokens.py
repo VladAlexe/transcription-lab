@@ -11,24 +11,35 @@ SPACING = (4, 8, 12, 16, 24, 32)
 S4, S8, S12, S16, S24, S32 = SPACING
 
 # ── Type scale ────────────────────────────────────────────────────────────────
-# One ladder, five rungs the eye can actually tell apart. The screen title is the largest
-# thing on any screen but never dwarfs it: 26 over a 15px body is a clear step, not a shout.
-TYPE_DISPLAY = 26            # screen H1, semibold
-TYPE_SUBTITLE = 14           # the line under an H1, muted
-TYPE_TITLE = 19              # dialog and overlay headers
-TYPE_HEADING = 15            # section titles, medium
-TYPE_SUBHEADING = 14
-TYPE_BODY = 15               # spoken text, at LINE_HEIGHT
-TYPE_SECONDARY = 13
-TYPE_LABEL = 12
-TYPE_CAPTION = 11
-TYPE_MONO = 11               # timestamps, muted
+# Three sizes, not eight. Hierarchy comes from weight and colour, which is what makes a
+# dense tool feel calm; a ladder with eight rungs reads as eight competing voices. The
+# remaining names are aliases onto those three so nothing has to be renamed everywhere.
+# The three base sizes, and the scale the researcher can move them by. Text is the whole
+# interface here — a transcript is nothing but text — so one number changes the density of
+# the entire application rather than each screen carrying its own idea of small.
+BASE_DISPLAY, BASE_BODY, BASE_META = 19, 14, 11
+SCALES = (("0.9", "Smaller"), ("1.0", "Default"), ("1.15", "Larger"), ("1.3", "Largest"))
+
+TYPE_DISPLAY = BASE_DISPLAY  # the only large text: a screen or panel title
+TYPE_BODY = BASE_BODY        # everything a person reads: speech, field values, buttons
+TYPE_META = BASE_META        # everything a person glances at: counts, labels, timestamps
+
+TYPE_TITLE = TYPE_DISPLAY
+TYPE_HEADING = TYPE_BODY
+TYPE_SUBHEADING = TYPE_BODY
+TYPE_SUBTITLE = TYPE_META
+TYPE_SECONDARY = TYPE_BODY
+TYPE_LABEL = TYPE_META
+TYPE_CAPTION = TYPE_META
+TYPE_MONO = TYPE_META        # timestamps
 
 # ── Surfaces ──────────────────────────────────────────────────────────────────
 # One card style everywhere: same radius, same hairline, same inner padding. A screen that
 # mixes 16 and 24 inside otherwise identical panels reads as two designs stacked.
 CARD_PADDING = 20
 HAIRLINE = 1
+# Surfaces separate by tone. A line is used only where two scrolling regions meet, which
+# is about four places in the whole application instead of the twenty it used to be.
 
 # ── Overlays ──────────────────────────────────────────────────────────────────
 # The root rule: a transient tool floats above the content, it never joins the page flow.
@@ -43,20 +54,29 @@ FLOATING_LIST_HEIGHT = 440   # a floating list needs a height; a docked pane tak
 FLOATING_PANEL_HEIGHT = 520  # the open turn, when the window cannot give it a column
 
 # ── Corner radius ─────────────────────────────────────────────────────────────
-R_SM = 8
-R_MD = 12
-R_LG = 16
+# One radius for everything with an edge. Mixing four of them is the difference between
+# a designed interface and an assembled one.
+RADIUS = 4
+R_SM = RADIUS
+R_MD = RADIUS
+R_LG = RADIUS
 R_PILL = 999
 
 # ── Layout ────────────────────────────────────────────────────────────────────
-TOP_BAR_HEIGHT = 64
+TOP_BAR_HEIGHT = 48
+STATUS_BAR_HEIGHT = 24       # the slim band along the bottom of the whole window
+# One monospaced family, named once. Timings, counts and identifiers are data, and data set
+# in a proportional face wanders as it changes; in a mono face the columns hold still.
+MONO = "Consolas, Cascadia Mono, Menlo, monospace"
 NAV_WIDTH = 220              # fixed while expanded
-NAV_MINIMISED = 72           # the researcher can minimise the rail to icons
+NAV_MINIMISED = 56           # an activity bar, not a sidebar
 
 # ── Sidebar rhythm ────────────────────────────────────────────────────────────
-WORDMARK_TOP = 20            # breathing room above the mark; nothing clipped
-WORDMARK_LEFT = 20           # lines the mark up with the nav icons below it
+WORDMARK_TOP = 18            # breathing room above the mark; nothing clipped
+WORDMARK_LEFT = 16           # lines the mark up with the nav icons below it
 WORDMARK_GAP = 10            # between the mark and the name
+MARK_SIZE = 44               # the logo in the sidebar: an app icon, not a bullet
+MARK_HERO = 76               # the same mark on Home
 NAV_ITEM_HEIGHT = 44
 NAV_ITEM_GAP = 12            # vertical gap between destinations
 NAV_PILL_INSET = 8           # the selected pill never touches the rail edges
@@ -65,8 +85,7 @@ NAV_ITEM_PADDING = 12        # inside the pill; icon lands at INSET + PADDING = 
 
 # ── Top bar rhythm ────────────────────────────────────────────────────────────
 TOP_BAR_LEFT = 32            # same left padding as the content column below
-CHIP_GAP = 20                # between the API chip and the icon cluster
-ICON_BUTTON = 40             # square hit area
+ICON_BUTTON = 34             # square hit area
 ICON_BUTTON_GAP = 4
 CONTROLS_GAP = 24            # before the divider and the OS window controls
 
@@ -75,9 +94,14 @@ EMPTY_STATE_MAX = 560        # capped, and never wider than the column it sits i
 EMPTY_STATE_PADDING = 48
 EMPTY_STATE_RHYTHM = 16
 EMPTY_STATE_ICON = 40
-INSPECTOR_WIDTH = 340        # fixed
-WORKSPACE_MIN = 580          # the workspace never shares the row below this
-# 220 + 580 + 340. Under this the inspector is a slide-over, not a third column.
+# The editing pane, and the widest declared pane on the screen. Correcting a sentence is
+# what this screen is for, so the box you correct it in gets the room: at 540 with 12 of
+# padding, a line runs to about 72 characters — a readable measure rather than the column
+# of three-word lines it started as.
+INSPECTOR_WIDTH = 660        # fixed
+INSPECTOR_PADDING = 12       # tighter than a card: the box inside is the point
+WORKSPACE_MIN = 380          # the workspace never shares the row below this
+# Under this the inspector is a slide-over, not a third column.
 INSPECTOR_BREAKPOINT = NAV_WIDTH + WORKSPACE_MIN + INSPECTOR_WIDTH
 MAX_CONTENT = 960            # hard cap on the inner content column
 CONTENT_GUTTER = 32          # equal padding either side of that column
@@ -85,83 +109,115 @@ CONTENT_GUTTER = 32          # equal padding either side of that column
 # review screen is three panes side by side, so it takes the whole workspace and caps the
 # spoken text instead (TRANSCRIPT_MEASURE below). Capping the panes wastes the desk.
 WORKBENCH_GUTTER = 24
-WORKBENCH_BAR_HEIGHT = 64    # title, counts and actions on one line, in place of a header block
-SELECTION_RULE = 3           # the sage edge that marks the turn being edited
-# The Speakers screen is three columns: the speaker list, the transcript, the open turn.
+WORKBENCH_BAR_HEIGHT = 46    # title, counts and actions on one line, in place of a header block
+# The review screen is three columns: the open turn, the transcript, the speaker list.
 # The list gets a real width rather than a share of the column — as a proportion it shrank
 # to about ninety pixels of name field on an ordinary window, which is unusable. The
 # transcript keeps a floor, and below the point where both fit the list floats instead.
-IDENTITY_PANE_WIDTH = 280
+# The speaker list holds names and turn counts, nothing wider. It was sized when it was the
+# only other pane; beside a 490 editor it was taking room from both the transcript and the
+# text being corrected, for a column that is mostly white space.
+IDENTITY_PANE_WIDTH = 184
+# The speaker list may only take a column while the transcript still has a usable one beside
+# it. This governs the whole three-column arrangement: at 1268 the sums are 56 rail + 660
+# editor + 48 gutters + 184 speakers + 16 + 304 transcript, and the editor cannot grow past
+# about 660 without pushing the speaker list out into a floating panel.
 TRANSCRIPT_MIN_COLUMN = 300
-IDENTITY_PANEL_SHARE = 3     # kept for the collapsed-rail arithmetic
-TRANSCRIPT_SHARE = 6
 # ── Reading ───────────────────────────────────────────────────────────────────
 TRANSCRIPT_MEASURE = 640     # max width of the spoken text itself
-TURN_GAP = 10                # air between turns, in place of a border on every row
+TURN_GAP = 2                 # air between turns, in place of a border on every row
 LINE_HEIGHT = 1.4
-TURN_PADDING = 8             # inside a turn, top and bottom
-# A turn in the list is a meta line and one line of speech: the whole turn is one click away
-# in the inspector, so the list is for finding your place, not for reading in.
-TRANSCRIPT_ROW_HEIGHT = 64   # uniform rows keep the sticky speaker header exact (gap included)
-TIMESTAMP_GUTTER = 56        # "00:12:04" at the mono size, with air after it
-CHECK_RULE = 3               # the sage bar marking a turn as reviewed
-SELECTION_TINT = True        # selection is a fill, not an edge — the edge belongs to checked
-FIELD_HEIGHT = 44            # one height for every text field and dropdown
-FIELD_HEIGHT_DENSE = 40      # inside overlays and the inspector, where space is tight
-PLAYER_BAR_HEIGHT = 56       # a slim footer, not a card competing with the text
-COLLAPSED_PANEL_WIDTH = 48
+TURN_PADDING = 6             # inside a turn, top and bottom
+# A turn shows two full lines of speech across the whole column. One line clipped at about
+# thirty characters — which is what a three-column window left — made the transcript the
+# one thing in the application that could not be read.
+TURN_LINES = 2
+TRANSCRIPT_ROW_HEIGHT = 76   # uniform rows keep virtualised scrolling exact (gap included)
+CHECK_RULE = 3               # the accent bar marking a turn as reviewed
+SKIP_SECONDS = 5             # how far the back/forward transport buttons jump
+FIELD_HEIGHT = 38            # one height for every text field and dropdown
+FIELD_HEIGHT_DENSE = 34      # inside overlays and the inspector, where space is tight
+PLAYER_BAR_HEIGHT = 44       # a status bar, not a card competing with the text
 
-# ── Brand ─────────────────────────────────────────────────────────────────────
-# Sampled from assets/icon.png: the logo is charcoal ink with a sage accent.
-BRAND_INK = "#282D31"
-BRAND_SAGE = "#758D83"
-# The mark's sage is too light to carry white label text (3.4:1). The interface accent is a
-# darkened sage that reaches 4.7:1, so buttons stay legible while reading as the same colour.
-SEED = "#5F7A68"
+# ── Brand ────────────────────────────────────────────────────────────────────
+# The five colours of the logo, named as they were given. Everything with a hue in this
+# application comes from here or from a tint of it, so the interface and the mark on the
+# sidebar are demonstrably the same palette rather than two that happen to look similar.
+AMBER = "#E8871E"        # Amber Earth  — the warm half of the mark
+ROSE = "#945D5E"         # Smoky Rose   — the second half
+TEAL = "#759588"         # Muted Teal   — the microphone body, and the accent family
+GRANITE = "#424D44"      # Granite      — its shadow
+CARBON = "#23231A"       # Carbon Black — the ink, and the dark theme's ground
 
-# ── Palettes. Roles, not raw names: every entry below has a dark counterpart. ──
+# The accent is Muted Teal taken to the lightness each theme needs. The palette colour
+# itself is a fill, not an ink: white on #759588 is 3.4:1, which is not a button label.
+# Darkened for light (white sits on it at 5.1:1) and lifted for dark (carbon ink, 6.7:1).
+PRIMARY_LIGHT = "#5B746A"
+PRIMARY_DARK = "#8DAE9F"
+SEED = PRIMARY_LIGHT
+
+# ── Palettes ─────────────────────────────────────────────────────────────────
+# Greys warmed a few degrees toward Carbon Black, which is where the logo's own ground sits.
+# Not beige — the earlier warm scale tinted every surface like stationery. Just enough that
+# the amber and the rose are not sitting on a cold blue-grey that argues with them.
 _LIGHT = {
-    "background": "#F5F4F1",          # warm light grey, not blue-white
-    "surface": "#FFFFFF",
-    "surface_variant": "#EFEEEA",
+    "chrome": "#F1F0EE",              # recessed: rail, toolbar, player
+    "background": "#E6E4E0",          # the seam between chrome and work
+    "surface": "#FFFFFF",             # raised: the transcript, the open turn
+    "surface_variant": "#F5F4F2",     # a quiet fill inside a surface
     "surface_raised": "#FFFFFF",
-    "on_surface": BRAND_INK,
-    "on_surface_variant": "#5C635F",
-    "muted": "#7C837F",
-    "outline": "#E2E0DA",
-    "outline_strong": "#C9C7C0",
-    "primary": "#5F7A68",
+    "on_surface": "#1F1F1A",          # Carbon Black: text carries the contrast, not boxes
+    "on_surface_variant": "#5C5B54",
+    "muted": "#87857C",
+    "outline": "#DEDCD7",
+    "outline_strong": "#C5C2BB",
+    "primary": PRIMARY_LIGHT,
     "on_primary": "#FFFFFF",
-    "primary_soft": "#E9EFEA",
-    "success": "#2E7D64",
-    "warning": "#9A6B1F",
-    "error": "#B3403A",
-    "shadow": "#1B211E14",            # 8% ink: depth you feel rather than see
+    "primary_soft": "#E6EBE8",
+    "success": "#4A6F5E",
+    # Amber Earth, darkened until it can be read as text on a light ground.
+    "warning": "#9A5A12",
+    # Red still, because a failure has to read as one, but pulled toward Smoky Rose so it
+    # belongs to the family instead of arriving from a different palette.
+    "error": "#B04B44",
+    "shadow": "#100B0F14",
+    # Amber Earth, translucent. Eight-digit colours are AARRGGBB, alpha first — written the
+    # other way round "#FFFFFF26" parses as opaque #FFFF26, which is why the scrollbar in
+    # the dark theme was a bright yellow bar that belonged to no palette at all.
+    "scrollbar": "#66E8871E",
+    # Amber Earth as given: a fill for the small marks that should catch the eye first.
+    "accent_warm": AMBER,
+    "on_accent_warm": CARBON,
+    "mark_edge": "#D2D0CA",
 }
 
 _DARK = {
-    "background": "#14171A",
-    "surface": "#1B1F22",
-    "surface_variant": "#22272A",
-    "surface_raised": "#252A2E",
-    "on_surface": "#ECEAE5",
-    "on_surface_variant": "#A6ADA8",
-    "muted": "#7E8783",
-    "outline": "#2C3236",
-    "outline_strong": "#3C4348",
-    "primary": "#A8BCAE",             # lightened sage; label ink sits on it at 8.2:1
-    "on_primary": "#1B211E",
-    "primary_soft": "#232C26",
-    "success": "#6FC7A2",
-    "warning": "#D9A45C",
-    "error": "#E08078",
-    "shadow": "#00000040",
+    "chrome": "#212119",
+    "background": "#191915",
+    "surface": "#292921",
+    "surface_variant": "#31312A",
+    "surface_raised": "#38382F",
+    "on_surface": "#E9E7E0",
+    "on_surface_variant": "#A9A79D",
+    "muted": "#7E7C72",
+    "outline": "#3B3B33",
+    "outline_strong": "#4D4D44",
+    "primary": PRIMARY_DARK,          # lifted for dark; carbon ink sits on it at 6.7:1
+    "on_primary": CARBON,
+    "primary_soft": "#293530",
+    "success": PRIMARY_DARK,
+    "warning": AMBER,                 # readable as given on a dark ground
+    "error": "#E0908A",
+    "shadow": "#59000000",
+    "scrollbar": "#8CE8871E",
+    "accent_warm": AMBER,
+    "on_accent_warm": CARBON,
+    "mark_edge": "#33000000",
 }
 
-# Speaker chips: eight hues that stay distinguishable beside the sage accent without
-# competing with it. Muted on purpose — these mark people, not states.
-_SPEAKER_LIGHT = ("#5F7A68", "#8A6A3B", "#4C6B84", "#7A5478", "#96603C", "#3F7370", "#6B6F92", "#7C6A45")
-_SPEAKER_DARK = ("#A8BCAE", "#D2AC78", "#8FB4D0", "#C69BC2", "#DCA079", "#79BDB8", "#A9ADD8", "#C7B489")
+# Speaker identity is its own family, cooler than the accent and never equal to it.
+_SPEAKER_LIGHT = ("#3F6FA8", "#A2662F", "#6C63B5", "#9A4F7E", "#2F7F79", "#8A6A3B", "#4E7BA8", "#7C6A45")
+_SPEAKER_DARK = ("#7FAEE0", "#DDA96B", "#A79EE8", "#D48FB6", "#66C2BA", "#D2AC78", "#8FBEEA", "#C7B489")
 
 _DARK_ACTIVE = False
 
@@ -175,11 +231,41 @@ def is_dark() -> bool:
     return _DARK_ACTIVE
 
 
+_SCALE = 1.0
+
+
+def type_scale() -> float:
+    return _SCALE
+
+
+def set_type_scale(scale: float) -> None:
+    """Resize the whole interface from one number, before anything is built.
+
+    The sizes are read as module attributes at build time, so setting them here reaches
+    every screen at once — which is the only way a text-size preference can work without
+    every control being taught about it.
+    """
+    global _SCALE, TYPE_DISPLAY, TYPE_BODY, TYPE_META
+    global TYPE_TITLE, TYPE_HEADING, TYPE_SUBHEADING, TYPE_SUBTITLE
+    global TYPE_SECONDARY, TYPE_LABEL, TYPE_CAPTION, TYPE_MONO
+    _SCALE = max(0.8, min(float(scale or 1.0), 1.4))
+    TYPE_DISPLAY = round(BASE_DISPLAY * _SCALE, 1)
+    TYPE_BODY = round(BASE_BODY * _SCALE, 1)
+    TYPE_META = round(BASE_META * _SCALE, 1)
+    TYPE_TITLE = TYPE_DISPLAY
+    TYPE_HEADING = TYPE_SUBHEADING = TYPE_SECONDARY = TYPE_BODY
+    TYPE_SUBTITLE = TYPE_LABEL = TYPE_CAPTION = TYPE_MONO = TYPE_META
+
+
 def _role(name: str) -> str:
     return (_DARK if _DARK_ACTIVE else _LIGHT)[name]
 
 
 def background() -> str: return _role("background")
+def mark_edge() -> str: return _role("mark_edge")
+def accent_warm() -> str: return _role("accent_warm")
+def on_accent_warm() -> str: return _role("on_accent_warm")
+def chrome() -> str: return _role("chrome")
 def surface() -> str: return _role("surface")
 def surface_variant() -> str: return _role("surface_variant")
 def surface_raised() -> str: return _role("surface_raised")
@@ -189,8 +275,20 @@ def muted() -> str: return _role("muted")
 def outline() -> str: return _role("outline")
 def outline_strong() -> str: return _role("outline_strong")
 def primary() -> str: return _role("primary")
+
+
+def primary_hover() -> str:
+    """A deeper accent for hover and press. Overlaying the label colour instead made a
+    filled button fade towards its own text on contact — it looked like it disappeared."""
+    return "#2F6650" if not _DARK_ACTIVE else "#7ED0AA"
 def on_primary() -> str: return _role("on_primary")
 def primary_soft() -> str: return _role("primary_soft")
+
+
+def scrollbar() -> str:
+    """The thumb colour. An editor's scrollbar is a hint at the edge of the text, not a
+    control with a track and a border around it."""
+    return _role("scrollbar")
 def success() -> str: return _role("success")
 def warning() -> str: return _role("warning")
 def error() -> str: return _role("error")

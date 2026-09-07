@@ -9,6 +9,7 @@ two different things, because before this they did not.
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import flet as ft
 import design_tokens as t
@@ -28,7 +29,7 @@ noop = lambda *a, **k: None
 def turn(index: int, start: float, confidence: float = .93) -> TranscriptSegment:
     return TranscriptSegment(0, 0.0, f"raw{index % 3}", f"SPEAKER_{index % 3}", start, start + 6,
                              start, start + 6, "A turn of ordinary length.", None, False,
-                             [Word(start, start + 1, "A", confidence)], confidence)
+                             [Word(start, start + 1, "ordinary", confidence)], confidence)
 
 
 def populated(confidence: float = .93) -> AppState:
@@ -42,7 +43,7 @@ def populated(confidence: float = .93) -> AppState:
 
 
 def review(state: AppState, width: float = 960.0) -> ft.Control:
-    return speakers_view.build(state, noop, noop, noop, 1, 0, noop,
+    return speakers_view.build(state, noop, noop, noop, 1, noop,
                                {"rows": {}, "speakers": {}}, width, noop, noop, noop, noop)
 
 
@@ -90,14 +91,6 @@ class ChromeTests(unittest.TestCase):
         self.assertNotIn(s.DIARIZATION_GLOBAL, texts(review(state)),
                          "and no longer sits between the researcher and the interview")
 
-    def test_an_all_clear_row_is_not_drawn_at_all(self) -> None:
-        self.assertIsNone(speakers_view._uncertain_strip(populated(), noop))
-
-    def test_the_uncertain_row_appears_when_there_is_something_to_check(self) -> None:
-        stack = self.column(populated(confidence=.2))
-        self.assertEqual(len(stack), 2, "the uncertain row, then the listing")
-        self.assertIn(s.LOW_CONFIDENCE_COUNT.format(count=9), texts(stack[0]))
-
     def test_one_filled_button_survives_the_simplification(self) -> None:
         filled = [c for c in layout_audit.walk(review(populated()))
                   if isinstance(c, ft.Button) and getattr(c, "bgcolor", None) == t.primary()]
@@ -123,9 +116,15 @@ class WorkbenchWidthTests(unittest.TestCase):
                 self.assertTrue(bench.wide)
 
     def test_the_workbench_gains_room_on_a_wide_display(self) -> None:
-        document, bench = measure(1920, True), measure(1920, True, wide=True)
-        self.assertGreater(bench.content, document.content + 300,
-                           "a 960px column on a 1920px display wastes a third of the desk")
+        """Measured the way the review screen actually runs: with the activity bar, not the
+        full sidebar. A 960px column on a 1920px display wastes a third of the desk.
+
+        The editing pane is counted with it. It is one of the workbench's three columns, so
+        comparing only the middle one against a document column understates the desk by
+        exactly the width of the pane the work happens in."""
+        document = measure(1920, True)
+        bench = measure(1920, True, nav_minimised=True, wide=True)
+        self.assertGreater(bench.content + bench.inspector, document.content + 300)
 
     def test_it_still_fits_on_the_narrowest_window(self) -> None:
         for page_width in (760, 900, 1024):
@@ -215,41 +214,71 @@ class IdentityRowTests(unittest.TestCase):
         self.assertIn(s.IDENTITY_META.format(speaker="SPEAKER_00", count=34, duration="00:12:04"),
                       texts(self.panel()))
 
-    def test_the_dot_the_name_and_both_actions_share_the_other(self) -> None:
+    def test_the_name_row_is_the_dot_and_the_name_and_nothing_else(self) -> None:
+        """Everything else was 34 pixels taken off a name field on every row of a narrow
+        pane: first a tick button that only repeated Enter, then the merge menu — which is
+        a once-per-interview act and does not earn a place beside what you type in."""
         first = self.panel().controls[0].content.controls[0]
         self.assertEqual(len([c for c in first.controls if isinstance(c, ft.TextField)]), 1)
-        self.assertEqual(len([c for c in first.controls if isinstance(c, ft.IconButton)]), 1)
-        self.assertEqual(len([c for c in first.controls if isinstance(c, ft.PopupMenuButton)]), 1)
+        self.assertEqual([c for c in first.controls if isinstance(c, ft.IconButton)], [])
+        self.assertEqual([c for c in first.controls if isinstance(c, ft.PopupMenuButton)], [])
+
+    def test_merge_moved_to_the_line_underneath(self) -> None:
+        second = self.panel().controls[0].content.controls[1]
+        self.assertEqual(len([c for c in second.controls if isinstance(c, ft.PopupMenuButton)]), 1)
+
+    def test_a_name_is_applied_by_clicking_away_as_well_as_by_pressing_enter(self) -> None:
+        applied: list[tuple[str, str]] = []
+        panel = speaker_panel({"SPEAKER_00": (34, 724.0)}, {"SPEAKER_00": "Moderator"},
+                              {"SPEAKER_00": 0}, lambda k, v: applied.append((k, v)),
+                              True, {}, noop, noop)
+        field = panel.controls[0].content.controls[0].controls[1]
+        field.value = "Ana"
+        field.on_blur(SimpleNamespace(control=field))
+        self.assertEqual(applied, [("SPEAKER_00", "Ana")])
+
+    def test_leaving_a_name_untouched_does_not_rewrite_it(self) -> None:
+        """Every blur would otherwise mark the project unsaved for a name nobody changed."""
+        applied: list[tuple[str, str]] = []
+        panel = speaker_panel({"SPEAKER_00": (34, 724.0)}, {"SPEAKER_00": "Moderator"},
+                              {"SPEAKER_00": 0}, lambda k, v: applied.append((k, v)),
+                              True, {}, noop, noop)
+        field = panel.controls[0].content.controls[0].controls[1]
+        field.on_blur(SimpleNamespace(control=field))
+        self.assertEqual(applied, [])
 
 
 if __name__ == "__main__": unittest.main()
 
 
 class PaneOrderTests(unittest.TestCase):
-    """The open turn on the left where reading starts, the speaker list on the right."""
+    """The open turn where reading starts, then the transcript, then the speaker list."""
 
-    def test_the_speaker_list_sits_left_of_the_transcript(self) -> None:
+    def test_the_speaker_list_sits_beyond_the_transcript(self) -> None:
+        """The editing pane and the transcript are the two surfaces looked at together —
+        you choose a turn on one and correct it on the other — so nothing goes between them
+        and the list of names sits on the far side."""
         state = populated()
         marker = ft.Container(ft.Text("SPEAKER LIST"))
-        screen = speakers_view.build(state, noop, noop, noop, 1, 0, noop,
+        screen = speakers_view.build(state, noop, noop, noop, 1, noop,
                                      {"rows": {}, "speakers": {}}, 960.0, identities=marker)
         panes = screen.controls[1].controls
         self.assertEqual(len(panes), 2)
-        self.assertIn("SPEAKER LIST", texts(panes[0]), "the list is the first pane")
-        self.assertNotIn("SPEAKER LIST", texts(panes[1]), "the transcript follows it")
+        self.assertNotIn("SPEAKER LIST", texts(panes[0]), "the transcript is the first pane")
+        self.assertIn("SPEAKER LIST", texts(panes[1]), "the list follows it")
 
     def test_the_list_column_declares_a_width_rather_than_a_share(self) -> None:
         """As a share it collapsed to about ninety pixels of name field on a normal window."""
-        screen = speakers_view.build(populated(), noop, noop, noop, 1, 0, noop,
+        screen = speakers_view.build(populated(), noop, noop, noop, 1, noop,
                                      {"rows": {}, "speakers": {}}, 960.0,
                                      identities=ft.Container())
-        column = screen.controls[1].controls[0]
+        column = screen.controls[1].controls[-1]
         self.assertEqual(column.width, t.IDENTITY_PANE_WIDTH)
         self.assertIn(column.expand, (None, False),
                       "a container given both width and expand ignores the width")
 
     def test_the_transcript_has_the_workspace_to_itself_when_the_list_is_away(self) -> None:
-        screen = speakers_view.build(populated(), noop, noop, noop, None, 0, noop,
+        screen = speakers_view.build(populated(), noop, noop, noop, None, noop,
                                      {"rows": {}, "speakers": {}}, 960.0)
         self.assertEqual(len(screen.controls[1].controls), 1)
 
@@ -271,14 +300,21 @@ class PaneOrderTests(unittest.TestCase):
         seen: list[bool] = []
         bar = speakers_view._workbench_bar(populated(), 3, noop, noop,
                                            lambda: seen.append(True), False)
-        toggles = [c for c in layout_audit.walk(bar) if isinstance(c, ft.IconButton)]
-        self.assertEqual(len(toggles), 1)
-        self.assertEqual(toggles[0].tooltip, s.COLLAPSE_IDENTITIES)
-        toggles[0].on_click(None)
+        toggle = [c for c in layout_audit.walk(bar) if isinstance(c, ft.IconButton)
+                  and c.tooltip == s.COLLAPSE_IDENTITIES]
+        self.assertEqual(len(toggle), 1)
+        toggle[0].on_click(None)
         self.assertEqual(seen, [True])
         hidden = speakers_view._workbench_bar(populated(), 3, noop, noop, noop, True)
-        self.assertEqual([c for c in layout_audit.walk(hidden)
-                          if isinstance(c, ft.IconButton)][0].tooltip, s.EXPAND_IDENTITIES)
+        self.assertTrue([c for c in layout_audit.walk(hidden) if isinstance(c, ft.IconButton)
+                         and c.tooltip == s.EXPAND_IDENTITIES])
+
+    def test_the_whole_toolbar_is_one_line(self) -> None:
+        """Title, counts, progress, filter and actions used to be four stacked bands."""
+        bar = speakers_view._workbench_bar(populated(), 3, noop, noop, noop, False,
+                                           ft.Container(ft.Text("13%")))
+        self.assertEqual(bar.height, t.WORKBENCH_BAR_HEIGHT)
+        self.assertIn("13%", texts(bar), "progress rides on the same line")
 
 
 class DensityTests(unittest.TestCase):
@@ -294,16 +330,23 @@ class DensityTests(unittest.TestCase):
         self.assertLessEqual(content + t.TURN_GAP, t.TRANSCRIPT_ROW_HEIGHT,
                              "a turn plus its gap must fit the extent")
 
-    def test_the_list_got_roughly_twice_as_dense(self) -> None:
-        """Four turns on screen meant paging every few seconds on a two-hour interview."""
-        before = 116
-        self.assertGreaterEqual(before / t.TRANSCRIPT_ROW_HEIGHT, 1.7)
-        self.assertEqual(t.TURN_GAP, 10, "the brief asked for ~10px between turns")
-        self.assertEqual(t.LINE_HEIGHT, 1.4)
+    def test_the_list_shows_far_more_transcript_not_more_rows(self) -> None:
+        """Rows are the wrong unit. One line clipped at about thirty characters fitted more
+        rows on screen and less of the interview; what matters is how much you can read."""
+        one_line_at_276px = 1 * 34
+        two_lines_at_660px = t.TURN_LINES * 82
+        rows_before, rows_now = 600 // 64, 600 // t.TRANSCRIPT_ROW_HEIGHT
+        before = rows_before * one_line_at_276px
+        now = rows_now * two_lines_at_660px
+        self.assertGreater(now / before, 3.0, f"{before} characters before, {now} now")
+        self.assertEqual(t.TURN_LINES, 2, "a turn is never clipped to one line again")
 
-    def test_the_timestamp_gutter_still_holds_a_timestamp(self) -> None:
-        self.assertGreaterEqual(t.TIMESTAMP_GUTTER, 8 * t.TYPE_MONO * .6,
-                                "hh:mm:ss at the mono size, with air after it")
+    def test_the_timestamp_shares_the_meta_line_rather_than_a_column(self) -> None:
+        """It used to hold a 56px gutter open on every row for eight monospaced characters."""
+        row = transcript_item(0, turn(0, 0.0), {}, t.speaker_color(0), False, 400, noop, {})
+        reading = [c for c in layout_audit.walk(row)
+                   if isinstance(c, ft.Container) and c.width == 400]
+        self.assertEqual(len(reading), 1, "the text spans the column, gutter included")
 
 
 class NoOverlapTests(unittest.TestCase):
@@ -355,7 +398,16 @@ class NoOverlapTests(unittest.TestCase):
                                      "a floating turn must not also reserve a column")
 
     def test_an_ordinary_window_gets_all_three_columns_and_no_overlay(self) -> None:
-        layout = measure(1268, True, False, False, wide=True)
+        """1268 is the window this is actually used on. All three panes are columns there,
+        and the editing pane is sized so that they stay columns: past about six hundred it
+        pushes the speaker list out into a floating panel, which is not an improvement."""
+        layout = measure(1268, True, False, True, wide=True)
+        placement = speakers_view.pane_placement(layout.content, layout.docked_inspector)
+        self.assertEqual((placement.identities, placement.detail), ("column", "pane"))
+        self.assertEqual(placement.floating, ())
+
+    def test_a_wide_window_gets_all_three_columns_and_no_overlay(self) -> None:
+        layout = measure(1920, True, False, True, wide=True)
         placement = speakers_view.pane_placement(layout.content, layout.docked_inspector)
         self.assertEqual((placement.identities, placement.detail), ("column", "pane"))
         self.assertEqual(placement.floating, ())
@@ -366,7 +418,9 @@ class NoOverlapTests(unittest.TestCase):
                 self.assertEqual(placement.identities, "hidden")
 
     def test_the_name_field_has_room_to_read_a_name_in(self) -> None:
-        """The reason the list stopped being a proportional share in the first place."""
-        furniture = 9 + 3 * t.S8 + 2 * t.ICON_BUTTON
+        """The reason the list stopped being a proportional share in the first place. The
+        pane is narrower than it was and the field inside it is wider, because the row lost
+        a button that only repeated the Enter key."""
+        furniture = 9 + t.S8
         field = t.IDENTITY_PANE_WIDTH - t.S16 - furniture
         self.assertGreaterEqual(field, 140, f"only {field}px of name field")

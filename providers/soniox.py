@@ -18,7 +18,8 @@ from models import TranscriptSegment, Word
 from typing import Callable
 
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
-                            TranscriptionProvider, emit_progress, format_elapsed, group_by_speaker)
+                            TranscriptionProvider, emit_progress, format_elapsed, group_by_speaker,
+                            language_code)
 from providers.http import (JOB_TIMEOUT, POLL_TIMEOUT, RETRY_ATTEMPTS, send, send_json, upload_file, with_retry)
 
 SERVICE = "Soniox"
@@ -33,8 +34,11 @@ POLL_ATTEMPTS = 2160  # ~3 hours at a 5 second interval
 
 
 def request_payload(file_id: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0) -> dict[str, Any]:
-    payload: dict[str, Any] = {"file_id": file_id, "model": MODEL, "enable_speaker_diarization": True,
-                               "language_hints": [language or DEFAULT_LANGUAGE]}
+    payload: dict[str, Any] = {"file_id": file_id, "model": MODEL, "enable_speaker_diarization": True}
+    # Soniox detects the language when it is given no hint; "auto" as a hint is not a
+    # language and would only narrow the search to a code that does not exist.
+    code = language_code(language, DEFAULT_LANGUAGE)
+    if code: payload["language_hints"] = [code]
     # Soniox works the speaker count out for itself; the value stays a hint, as with Deepgram.
     if expected_speakers and expected_speakers > 1: payload["num_speakers"] = int(expected_speakers)
     return payload

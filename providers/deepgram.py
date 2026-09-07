@@ -22,7 +22,8 @@ from urllib.request import Request, urlopen
 
 from models import TranscriptSegment, Word
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
-                            TranscriptionProvider, emit_progress, group_by_speaker, merge_turns, whole_file_segment)
+                            TranscriptionProvider, emit_progress, group_by_speaker, language_code, merge_turns,
+                            whole_file_segment)
 from providers.http import (TRANSIENT_STATUS, UPLOAD_TIMEOUT, UploadReader, content_type, error_detail,
                             friendly, with_retry)
 
@@ -41,8 +42,12 @@ RETRY_ATTEMPTS = 3
 
 def request_params(language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0,
                    with_speaker_hint: bool = True) -> dict[str, str]:
-    params = {"model": MODEL, "language": language or DEFAULT_LANGUAGE, "diarize": "true",
+    params = {"model": MODEL, "diarize": "true",
               "utterances": "true", "punctuate": "true", "smart_format": "true"}
+    # Deepgram has its own flag for detection; `language=auto` is not a code it accepts.
+    code = language_code(language, DEFAULT_LANGUAGE)
+    if code: params["language"] = code
+    else: params["detect_language"] = "true"
     if with_speaker_hint and expected_speakers and expected_speakers > 1:
         params["speakers_expected"] = str(int(expected_speakers))
     return params

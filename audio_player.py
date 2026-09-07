@@ -72,6 +72,8 @@ class AudioPlayer:
         # Seconds to step back when pausing, so resuming catches the start of the word.
         # Inert by default; the application sets it from the researcher's preference.
         self.auto_rewind = 0.0
+        # Set when pausing, spent when playback starts again. See `_take_owed_rewind`.
+        self._rewind_owed = False
         self._started = False
         # Transport calls sent before the backend has opened the source block for ten seconds
         # and then raise. Requests made too early are remembered and replayed on on_loaded.
@@ -148,12 +150,20 @@ class AudioPlayer:
             self.log("[audio] source not open yet — queued until on_loaded")
             self._changed()
             return milliseconds
+        self._rewind_owed = False
         if not self._started:
             # audioplayers needs a first play() to open the source; it takes the start position.
             self._started = True
             self.playing = play
             self.log(f"[audio] first play() issued at {milliseconds} ms")
             self.runner(self.audio.play, milliseconds)
+            # ...which also starts it. Seeking while paused — skipping back to check a word,
+            # clicking a turn to hear it — has to stay paused, and it did not: the
+            # backend was playing while the interface said it was not, so the next play/pause
+            # press appeared to do nothing at all.
+            if not play:
+                self.log("[audio] paused straight after opening the source")
+                self.runner(self.audio.pause)
         else:
             self.log(f"[audio] seek() issued at {milliseconds} ms")
             self.runner(self.audio.seek, milliseconds)
@@ -162,6 +172,20 @@ class AudioPlayer:
                 self.runner(self.audio.resume)
         self._changed()
         return milliseconds
+
+    def skip(self, delta_seconds: float) -> int | None:
+        """Jump relative to where playback is now, clamped to the recording.
+
+        The pre-roll is added back before seeking, so a ten second jump moves exactly ten
+        seconds rather than ten minus the pre-roll. Playback state is preserved: skipping
+        while paused leaves it paused, which is what a researcher checking a word expects.
+        """
+        if not self.ready:
+            return None
+        target = self.position_ms / 1000.0 + float(delta_seconds) + self.pre_roll
+        if self.duration_ms:
+            target = min(target, max(0.0, self.duration_ms / 1000.0 - .05))
+        return self.seek(max(0.0, target), play=self.playing)
 
     def toggle(self) -> None:
         if not self.ready:
@@ -176,8 +200,15 @@ class AudioPlayer:
         if self.playing:
             self.playing = False
             self.runner(self.audio.pause)
-            self._rewind_after_pause()
+            # The rewind is owed, not taken. Seeking backwards at the moment of pausing sent
+            # a lower position to the interface, which followed it — so Ctrl+W sometimes
+            # jumped to the previous turn instead of stopping, and always looked as though
+            # the audio had run on for another second before it stopped. Pause stops here;
+            # the step back happens when playback starts again, which is the only moment it
+            # was ever for.
+            self._rewind_owed = self.auto_rewind > 0 and self._started
         else:
+            self._take_owed_rewind()
             self.playing = True
             if not self._started:
                 self._started = True
@@ -187,32 +218,53 @@ class AudioPlayer:
         self._changed()
 
     def set_speed(self, rate: float) -> None:
-        """Rebuild the service at the new rate, resuming where the listener was.
+        """Change the rate on the live service. Nothing reloads, nothing is lost.
 
-        A property change on an attached Audio does not reach the backend — the same reason
-        `src` has to be set at construction — so the service is rebuilt and the position restored.
+        `src` genuinely has to be set at construction — that was established by bisection —
+        and the rebuild that fact forced was wrongly applied to speed as well. Changing the
+        rate therefore tore down the service and reloaded the recording: on a hundred-and-
+        thirty-megabyte file, playback stopped, the position was restored by guesswork and
+        the audio stuttered back to life. `playback_rate` is an ordinary property; it takes
+        an update like any other.
         """
         rate = max(0.25, min(float(rate), 3.0))
-        if rate == self.speed or not self.ready:
-            self.speed = rate
+        if rate == self.speed:
             return
-        position, playing, path = self.position_ms, self.playing, self.path
         self.speed = rate
-        self.log(f"[audio] speed {rate:g}x — rebuilding at {position} ms")
-        self.unbind()
-        if path and self.bind(path):
-            self._pending_ms = position
-            self._pending_play = playing
+        if not self.ready or self.audio is None:
+            return
+        try:
+            self.audio.playback_rate = rate
+            self.audio.update()
+            self.log(f"[audio] speed {rate:g}x applied in place at {self.position_ms} ms")
+        except Exception as exc:
+            # A rebuild is the fallback, not the plan: it costs the load and the position.
+            self.log(f"[audio] speed {rate:g}x needs a rebuild ({exc})")
+            position, playing, path = self.position_ms, self.playing, self.path
+            self.unbind()
+            if path and self.bind(path):
+                self._pending_ms = position
+                self._pending_play = playing
+        self._changed()
 
-    def _rewind_after_pause(self) -> None:
+    def _take_owed_rewind(self) -> None:
+        """Step back the pre-roll owed from the last pause, just before resuming.
+
+        Nothing is owed after a deliberate move — skipping, scrubbing, or clicking a turn
+        already put the cursor where the researcher meant it to be, and stepping back from
+        there would take the audio somewhere neither of them asked for.
+        """
         from playback_sync import rewind_target
+        if not self._rewind_owed:
+            return
+        self._rewind_owed = False
         if self.auto_rewind <= 0 or not self._started:
             return
         target = rewind_target(self.position_ms, self.auto_rewind)
         if target == self.position_ms:
             return
         self.position_ms = target
-        self.log(f"[audio] auto-rewind {self.auto_rewind:g}s -> {target} ms")
+        self.log(f"[audio] auto-rewind {self.auto_rewind:g}s -> {target} ms on resume")
         self.runner(self.audio.seek, target)
 
     def scrub(self, milliseconds: int) -> None:

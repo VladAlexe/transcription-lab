@@ -1,9 +1,9 @@
 """The registry of transcription providers."""
 from __future__ import annotations
 
-from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
-                            TranscriptionProvider, emit_progress, feature_state, group_by_speaker, speaker_label,
-                            whole_file_segment)
+from providers.base import (AUTO_LANGUAGE, CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError,
+                            ProviderInfo, TranscriptionProvider, detect_requested, emit_progress, feature_state,
+                            group_by_speaker, language_code, speaker_label, whole_file_segment)
 from providers.deepgram import DeepgramProvider
 from providers.gladia import GladiaProvider
 from providers.openai_compatible import OpenAICompatibleProvider
@@ -18,7 +18,7 @@ PROVIDERS: dict[str, type[TranscriptionProvider]] = {
     for provider in (GladiaProvider, SonioxProvider, DeepgramProvider, OpenAIDiarizeProvider, OpenAICompatibleProvider)
 }
 
-__all__ = ["CancelCallback", "DEFAULT_PROVIDER", "DeepgramProvider", "GladiaProvider", "OpenAICompatibleProvider",
+__all__ = ["AUTO_LANGUAGE", "CancelCallback", "detect_requested", "language_code", "DEFAULT_PROVIDER", "DeepgramProvider", "GladiaProvider", "OpenAICompatibleProvider",
            "OpenAIDiarizeProvider", "PROVIDERS", "ProgressCallback", "ProviderCapabilities", "ProviderError",
            "ProviderInfo", "SonioxProvider", "TranscriptionProvider", "emit_progress", "feature_state",
            "group_by_speaker", "provider_capabilities", "provider_choices", "provider_info", "speaker_label",

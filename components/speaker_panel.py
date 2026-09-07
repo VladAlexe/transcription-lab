@@ -37,29 +37,40 @@ def speaker_panel(stats:dict[str,tuple[int,float]],mapping:dict[str,str],speaker
     speakers=list(stats)
     for speaker,(count,duration) in stats.items():
         color=t.speaker_color(speaker_index.get(speaker,0))
-        field=ft.TextField(value=mapping.get(speaker,speaker),dense=True,text_size=t.TYPE_SECONDARY,
-            height=t.FIELD_HEIGHT_DENSE,expand=True,
+        current=mapping.get(speaker,speaker)
+
+        def commit(event,key=speaker,was=current)->None:
+            # Enter, or simply clicking away. The tick button that used to sit here repeated
+            # Enter and cost 34 pixels on every row of a narrow pane — which is most of the
+            # reason the name field had no room to read a name in.
+            value=(event.control.value or key).strip() or key
+            if value!=was: on_map(key,value)
+
+        field=ft.TextField(value=current,dense=True,text_size=t.TYPE_SECONDARY,
+            height=t.FIELD_HEIGHT_DENSE,expand=True,tooltip=s.APPLY_NAME,
             disabled=not enabled,border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
             color=t.on_surface(),content_padding=ft.Padding(t.S12,t.S8,t.S12,t.S8),
-            on_submit=lambda e,key=speaker:on_map(key,e.control.value or key),
+            on_submit=commit if enabled else None,
             on_focus=(lambda e:on_typing(True)) if on_typing else None,
-            on_blur=(lambda e:on_typing(False)) if on_typing else None)
+            on_blur=(lambda e:(on_typing(False) if on_typing else None,
+                               commit(e) if enabled else None)[0]))
         if refs is not None: refs[speaker]=field
-        controls:list[ft.Control]=[field,
-            icon_button(ft.Icons.CHECK,s.APPLY_NAME,
-                (lambda e,key=speaker,control=field:on_map(key,control.value or key)) if enabled else None,
-                disabled=not enabled)]
-        if on_merge is not None:
-            controls.append(_merge_menu(speaker,[other for other in speakers if other!=speaker],
-                mapping,on_merge))
+        # Merge sits under the name, not beside it. Beside it, a 34px control on every row
+        # was the difference between a name field you can read a name in and one you cannot,
+        # and folding two speakers together is a once-per-interview act — not something that
+        # earns a permanent place next to the thing you actually type in.
+        merge=(_merge_menu(speaker,[other for other in speakers if other!=speaker],
+                           mapping,on_merge) if on_merge is not None else None)
         # Two lines, not three: the dot joins the name row, and the raw label joins the
         # counts underneath it. Same information, a third less panel to scroll through.
         rows.append(ft.Container(ft.Column([
-            ft.Row([ft.Container(width=9,height=9,bgcolor=color,border_radius=t.R_PILL),
-                *controls],spacing=t.S8,vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Text(s.IDENTITY_META.format(speaker=speaker,count=count,
-                duration=format_timestamp(duration)),size=t.TYPE_CAPTION,color=t.muted(),
-                max_lines=1,overflow=ft.TextOverflow.ELLIPSIS)],spacing=t.S4),
+            ft.Row([ft.Container(width=9,height=9,bgcolor=color,border_radius=t.R_PILL),field],
+                spacing=t.S8,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Row([ft.Text(s.IDENTITY_META.format(speaker=speaker,count=count,
+                    duration=format_timestamp(duration)),size=t.TYPE_CAPTION,color=t.muted(),
+                    max_lines=1,overflow=ft.TextOverflow.ELLIPSIS,expand=True),
+                *( [merge] if merge is not None else [] )],
+                spacing=t.S4,vertical_alignment=ft.CrossAxisAlignment.CENTER)],spacing=t.S4),
             padding=ft.Padding(0,t.S12,0,t.S12),
             border=ft.Border(bottom=ft.BorderSide(t.HAIRLINE,t.outline()))))
     return ft.ListView(rows,spacing=0,expand=True)

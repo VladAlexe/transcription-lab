@@ -14,7 +14,8 @@ DESTINATIONS=((s.NAV_RECORDING,ft.Icons.AUDIO_FILE_OUTLINED),(s.NAV_TRANSCRIPTIO
 
 def navigation_rail(state:AppState,on_navigate:Callable[[int],None],on_new:Callable[[],None],
                     on_save:Callable[[],None],on_open:Callable[[],None],
-                    minimised:bool=False,on_minimise:Callable[[],None]|None=None)->ft.Control:
+                    minimised:bool=False,on_minimise:Callable[[],None]|None=None,
+                    on_home:Callable[[],None]|None=None)->ft.Control:
     items:list[ft.Control]=[]
     for index,(label,icon) in enumerate(DESTINATIONS):
         available=index==0 or index==1 and state.selected_file_metadata is not None or index>=2 and bool(state.transcript_segments)
@@ -33,6 +34,7 @@ def navigation_rail(state:AppState,on_navigate:Callable[[int],None],on_new:Calla
             vertical_alignment=ft.CrossAxisAlignment.CENTER),height=t.NAV_ITEM_HEIGHT,
             padding=ft.Padding(t.NAV_ITEM_PADDING,0,t.NAV_ITEM_PADDING,0),
             margin=ft.Margin(0,0,0,t.NAV_ITEM_GAP),
+            border=ft.Border(left=ft.BorderSide(2,t.primary() if selected else ft.Colors.TRANSPARENT)),
             bgcolor=t.primary_soft() if selected else None,border_radius=t.NAV_PILL_RADIUS,
             opacity=1 if available else .4,
             tooltip=label if available else s.NAV_LOCKED.format(step=label),
@@ -41,8 +43,9 @@ def navigation_rail(state:AppState,on_navigate:Callable[[int],None],on_new:Calla
     def rail_action(icon:ft.IconData,tooltip:str,handler:Callable[[],None],disabled:bool=False)->ft.Control:
         return icon_button(icon,tooltip,lambda e:handler(),size=20,color=t.muted(),disabled=disabled)
 
+    # Saving is a labelled button in the top bar, beside the Saved / Unsaved line it
+    # answers to. A second, unlabelled copy down here was one of four orphan icons.
     buttons=[rail_action(ft.Icons.FOLDER_OPEN,s.OPEN_PROJECT,on_open),
-        rail_action(ft.Icons.SAVE_OUTLINED,s.SAVE_PROJECT,on_save,not bool(state.transcript_segments)),
         rail_action(ft.Icons.ADD,s.NEW_PROJECT,on_new)]
     if on_minimise is not None:
         buttons.append(rail_action(ft.Icons.CHEVRON_RIGHT if minimised else ft.Icons.CHEVRON_LEFT,
@@ -55,5 +58,6 @@ def navigation_rail(state:AppState,on_navigate:Callable[[int],None],on_new:Calla
         ft.Container(expand=True),
         ft.Container(actions,padding=ft.Padding(t.NAV_PILL_INSET,0,t.NAV_PILL_INSET,t.S12))],
         spacing=0,expand=True)
-    return ft.Container(ft.Column([wordmark(minimised),body],spacing=0,expand=True),
-        bgcolor=t.surface(),border=ft.Border(right=ft.BorderSide(1,t.outline())))
+    return ft.Container(ft.Column([wordmark(minimised,on_home),body],spacing=0,expand=True),
+        bgcolor=t.chrome(),
+        border=ft.Border(right=ft.BorderSide(t.HAIRLINE,t.outline())))

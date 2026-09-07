@@ -218,10 +218,13 @@ the workflow checks all four.
 Pass `--exclude` for anything that must not be packaged. In particular `.git` and `.flet`:
 without them excluded, the entire repository history ends up inside the shipped application.
 
-The application icon is `assets\icon.svg` (the editable source), `assets\icon.png`
-(1024×1024), `assets\icon_windows.png` (what `flet build` uses for the Windows executable)
-and `assets\icon.ico` (applied to the live window at runtime). After changing the SVG,
-regenerate the raster files:
+`assets\icon.png` is the master artwork and the only file to replace when the logo
+changes. It is a wide render with the mark on its own backdrop, which is right for a
+picture and wrong for an icon, so everything else is derived from a square crop of it:
+`assets\icon_mark.png` (1024×1024, what the interface shows), `assets\icon_windows.png`
+(what `flet build` puts on the executable), `assets\icon.ico` (applied to the live window
+at runtime) and `assets\icon.svg` (the same crop in a vector wrapper). After replacing the
+master, regenerate the rest:
 
 ```powershell
 python tools_make_icon.py

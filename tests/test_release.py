@@ -192,7 +192,7 @@ class WorkflowTests(unittest.TestCase):
 
 class PackagingTests(unittest.TestCase):
     def test_every_icon_the_build_needs_is_committed(self) -> None:
-        for name in ("icon.png", "icon.ico", "icon_windows.png", "icon.svg"):
+        for name in ("icon.png", "icon_mark.png", "icon.ico", "icon_windows.png", "icon.svg"):
             with self.subTest(icon=name):
                 path = ROOT / "assets" / name
                 self.assertTrue(path.is_file(), f"assets/{name} is missing")
@@ -297,7 +297,8 @@ class FirstRunTests(unittest.TestCase):
     def test_nothing_on_the_first_screen_needs_a_file_that_may_not_exist(self) -> None:
         """A missing asset must degrade, not raise: the mark falls back to a sage tile."""
         from components import brand
-        self.assertIsNotNone(brand.mark().error_content)
+        # The mark sits on a tile of its own now, so the image is one level in.
+        self.assertIsNotNone(brand.mark().content.error_content)
 
     def test_the_key_is_never_written_to_the_preferences_file(self) -> None:
         import main
@@ -308,3 +309,26 @@ class FirstRunTests(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class IconPipelineTests(unittest.TestCase):
+    """Every size ships from one master, so they cannot drift apart."""
+
+    def test_the_derived_icons_are_square(self) -> None:
+        """The master is a 3:2 render. Shown as an icon it would be mostly backdrop."""
+        from PIL import Image
+        for name in ("icon_mark.png", "icon_windows.png"):
+            with self.subTest(icon=name):
+                width, height = Image.open(ROOT / "assets" / name).size
+                self.assertEqual(width, height)
+
+    def test_the_ico_carries_the_small_sizes_the_taskbar_asks_for(self) -> None:
+        from PIL import Image
+        with Image.open(ROOT / "assets" / "icon.ico") as icon:
+            self.assertIn((16, 16), icon.info["sizes"])
+            self.assertIn((256, 256), icon.info["sizes"])
+
+    def test_the_master_is_never_overwritten_by_the_generator(self) -> None:
+        script = (ROOT / "tools_make_icon.py").read_text(encoding="utf-8")
+        self.assertIn("never written by this script", script)
+        self.assertNotIn("SOURCE)", script.split("def main")[1].replace("Image.open(SOURCE)", ""))

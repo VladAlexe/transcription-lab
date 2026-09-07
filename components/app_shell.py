@@ -70,16 +70,20 @@ def measure(page_width:float|None,wants_inspector:bool,inspector_open:bool=False
     return Layout(width,nav,workspace,inspector,content,docked,sheet,gutter,wide)
 
 
-def _inspector_pane(inspector:ft.Control,width:float)->ft.Container:
-    """A solid right-hand sheet: opaque surface, own border, never see-through."""
-    return ft.Container(inspector,width=width,padding=t.CARD_PADDING,bgcolor=t.surface(),
-        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        border=ft.Border(left=ft.BorderSide(1,t.outline_strong())))
+def _inspector_pane(inspector:ft.Control,width:float,left:bool=False)->ft.Container:
+    """A solid sheet beside the work area: opaque surface, its own gutter, never see-through."""
+    # Raised, and separated from the work area by the seam colour rather than a rule. The
+    # gutter goes on whichever side faces the transcript.
+    gutter=ft.Padding(t.S12,t.S12,0,t.S8) if left else ft.Padding(0,t.S12,t.S12,t.S8)
+    return ft.Container(ft.Container(inspector,padding=t.INSPECTOR_PADDING,bgcolor=t.surface(),
+            border_radius=t.RADIUS,clip_behavior=ft.ClipBehavior.HARD_EDGE),
+        width=width,padding=gutter,clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
 
 def app_shell(nav:ft.Control,top:ft.Control,workspace:ft.Control,inspector:ft.Control|None,
               layout:Layout,refs:dict|None=None,scrollable:bool=True,
-              footer:ft.Control|None=None,overlays:list[ft.Control]|None=None)->ft.Control:
+              footer:ft.Control|None=None,overlays:list[ft.Control]|None=None,
+              status:ft.Control|None=None,inspector_left:bool=True)->ft.Control:
     column=ft.Column([workspace],spacing=0,expand=True,
         scroll=ft.ScrollMode.AUTO if scrollable else None)
     # Fixed width, centred, NOT expanding — see the module docstring.
@@ -107,16 +111,25 @@ def app_shell(nav:ft.Control,top:ft.Control,workspace:ft.Control,inspector:ft.Co
             vertical_alignment=ft.CrossAxisAlignment.STRETCH)
         if refs is not None: refs["inspector_sheet"]=field.controls[1]
 
-    # The footer is pinned under the workspace: a slim bar, outside the scrolling content.
-    stack:list[ft.Control]=[top,field]
-    if footer is not None: stack.append(footer)
-    center=ft.Container(ft.Column(stack,spacing=0,expand=True),
-        width=layout.workspace,clip_behavior=ft.ClipBehavior.HARD_EDGE)
+    center=ft.Container(field,width=layout.workspace,clip_behavior=ft.ClipBehavior.HARD_EDGE)
     if refs is not None: refs["workspace_pane"]=center
-    panes:list[ft.Control]=[ft.Container(nav,width=layout.nav,clip_behavior=ft.ClipBehavior.HARD_EDGE),center]
+    panes:list[ft.Control]=[ft.Container(nav,width=layout.nav,clip_behavior=ft.ClipBehavior.HARD_EDGE)]
     if inspector is not None and layout.docked_inspector:
-        docked=_inspector_pane(inspector,layout.inspector)
+        docked=_inspector_pane(inspector,layout.inspector,left=inspector_left)
         if refs is not None: refs["inspector_sheet"]=docked
-        panes.append(docked)
-    return ft.Container(ft.Row(panes,spacing=0,expand=True,vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-        bgcolor=t.background(),expand=True,clip_behavior=ft.ClipBehavior.HARD_EDGE)
+        # The pane the work happens in comes first, where reading starts, with the list of
+        # turns to its right — you choose a turn on the right and correct it on the left.
+        panes.extend([docked,center] if inspector_left else [center,docked])
+    else:
+        panes.append(center)
+    frame=ft.Row(panes,spacing=0,expand=True,vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+    # Title bar across the top, work in the middle, transport and status band across the
+    # bottom. The title bar used to belong to the workspace column, which put the window's
+    # own close button five hundred pixels in from the right edge whenever the editing pane
+    # was docked — and started that pane lower down the screen than the two beside it. Every
+    # band that describes the window now spans the window.
+    root:list[ft.Control]=[top,frame]
+    if footer is not None: root.append(footer)
+    if status is not None: root.append(status)
+    return ft.Container(ft.Column(root,spacing=0,expand=True),bgcolor=t.chrome(),expand=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE)

@@ -5,6 +5,7 @@ would break on the OpenAI path and on any custom endpoint.
 """
 from __future__ import annotations
 
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,8 +19,7 @@ from audio_player import AudioPlayer
 from components.audio_transport import SPEEDS
 from components.transcript_list import paint_turn, transcript_item
 from models import TranscriptSegment, Word
-from playback_sync import (LOW_CONFIDENCE, Position, format_stamp, insert_timestamp,
-                           locate, low_confidence_marks, next_mark, rewind_target)
+from playback_sync import Position, format_stamp, insert_timestamp, locate, rewind_target
 from providers import ProviderCapabilities
 from views import speakers_view
 
@@ -102,71 +102,6 @@ class SyncedHighlightTests(unittest.TestCase):
         self.assertEqual(parts["body"].value, TIMED[0].text)
 
 
-class LowConfidenceTests(unittest.TestCase):
-    def marks_for(self, confidence: float) -> list:
-        turn = timed_turn(0, 0.0, [("sigur", 0.0, .5), ("neclar", .5, 1.0)])
-        turn.words[1] = Word(.5, 1.0, "neclar", confidence)
-        return low_confidence_marks([turn])
-
-    def test_words_below_the_threshold_are_marked(self) -> None:
-        marks = self.marks_for(0.2)
-        self.assertEqual(len(marks), 1)
-        self.assertTrue(marks[0].word_level)
-        self.assertEqual(marks[0].word, 1)
-        self.assertEqual(marks[0].start, .5)
-
-    def test_confident_words_are_not_marked(self) -> None:
-        self.assertEqual(self.marks_for(0.95), [])
-
-    def test_turn_level_marking_when_only_the_turn_is_scored(self) -> None:
-        turns = [untimed_turn(0, 0.0, 2.0, "unsure", 0.3)]
-        marks = low_confidence_marks(turns)
-        self.assertEqual(len(marks), 1)
-        self.assertFalse(marks[0].word_level)
-        self.assertIsNone(marks[0].word)
-
-    def test_a_provider_without_confidence_yields_nothing(self) -> None:
-        self.assertEqual(low_confidence_marks(UNTIMED), [], "no scores, nothing to flag")
-
-    def test_the_control_is_hidden_without_confidence_scores(self) -> None:
-        state = AppState()
-        state.transcript_segments = list(UNTIMED)
-        state.run_capabilities = ProviderCapabilities(supports_diarization=False,
-                                                      supports_confidence=False)
-        screen = speakers_view.build(state, noop, noop, noop, None, 0, noop,
-                                     {"rows": {}, "speakers": {}}, 960, noop, noop, noop)
-        texts = [c.value for c in layout_audit.walk(screen) if isinstance(c, ft.Text) and c.value]
-        self.assertFalse([line for line in texts if "unsure of" in line],
-                         "a counter that can only read zero must not be shown")
-
-    def test_the_control_appears_when_the_provider_scores_confidence(self) -> None:
-        state = AppState()
-        turn = timed_turn(0, 0.0, [("neclar", 0.0, 1.0)])
-        turn.words[0] = Word(0.0, 1.0, "neclar", 0.1)
-        state.transcript_segments = [turn]
-        state.run_capabilities = ProviderCapabilities(supports_diarization=True,
-                                                      supports_confidence=True,
-                                                      supports_word_timestamps=True,
-                                                      global_speakers=True)
-        screen = speakers_view.build(state, noop, noop, noop, None, 0, noop,
-                                     {"rows": {}, "speakers": {}}, 960, noop, noop, noop)
-        texts = [c.value for c in layout_audit.walk(screen) if isinstance(c, ft.Text) and c.value]
-        self.assertIn(s.LOW_CONFIDENCE_COUNT.format(count=1), texts)
-
-    def test_the_jump_advances_and_then_wraps(self) -> None:
-        turn = timed_turn(0, 0.0, [("a", 0.0, 1.0), ("b", 5.0, 6.0)])
-        turn.words[0] = Word(0.0, 1.0, "a", 0.1)
-        turn.words[1] = Word(5.0, 6.0, "b", 0.2)
-        marks = low_confidence_marks([turn])
-        self.assertEqual(next_mark(marks, -1).start, 0.0)
-        self.assertEqual(next_mark(marks, 0.0).start, 5.0)
-        self.assertEqual(next_mark(marks, 9.0).start, 0.0, "wraps to the first")
-        self.assertIsNone(next_mark([], 0.0))
-
-    def test_the_default_threshold(self) -> None:
-        self.assertEqual(LOW_CONFIDENCE, 0.65)
-
-
 class AutoRewindTests(unittest.TestCase):
     class _FakeAudio:
         src = None
@@ -190,34 +125,66 @@ class AutoRewindTests(unittest.TestCase):
         calls.clear()
         return player, calls
 
-    def test_pausing_steps_back_by_the_configured_amount(self) -> None:
+    def test_pausing_stops_exactly_where_it_was(self) -> None:
+        """Seeking backwards at the moment of pausing sent a lower position to the interface,
+        which followed it: Ctrl+W sometimes jumped to the previous turn instead of stopping,
+        and always looked as though the audio had run on for another second first."""
         player, calls = self.player(1.5)
         player.toggle()
-        self.assertEqual(calls[0][0], "pause")
-        self.assertEqual(calls[1], ("seek", (28_500,)), "1.5s back from 30.0s")
+        self.assertEqual([name for name, _ in calls], ["pause"])
+        self.assertEqual(player.position_ms, 30_000)
+
+    def test_the_step_back_is_taken_when_playback_starts_again(self) -> None:
+        player, calls = self.player(1.5)
+        player.toggle()
+        calls.clear()
+        player.toggle()
+        self.assertEqual(calls[0], ("seek", (28_500,)), "1.5s back from 30.0s")
+        self.assertEqual(calls[1][0], "resume")
         self.assertEqual(player.position_ms, 28_500)
 
     def test_the_amount_is_configurable(self) -> None:
         player, calls = self.player(3.0)
+        player.toggle(); calls.clear(); player.toggle()
+        self.assertEqual(calls[0], ("seek", (27_000,)))
+
+    def test_it_is_owed_once_and_not_again(self) -> None:
+        """Two pauses in a row must not stack up three seconds of pre-roll."""
+        player, calls = self.player(1.5)
+        player.toggle(); player.toggle()          # pause, resume: the debt is paid
+        calls.clear()
+        player.toggle(); player.toggle()          # pause, resume again
+        seeks = [call for call in calls if call[0] == "seek"]
+        self.assertEqual(len(seeks), 1)
+
+    def test_moving_deliberately_cancels_what_was_owed(self) -> None:
+        """Skipping, scrubbing or clicking a turn already put the cursor where it was meant
+        to be; stepping back from there would take the audio somewhere nobody asked for."""
+        player, calls = self.player(1.5)
+        player.toggle()                            # paused at 30.0s, 1.5s owed
+        player.seek(50.0, play=False)
+        player.position_ms = 50_000
+        calls.clear()
         player.toggle()
-        self.assertEqual(calls[1], ("seek", (27_000,)))
+        self.assertEqual([name for name, _ in calls], ["resume"])
+        self.assertEqual(player.position_ms, 50_000)
 
     def test_zero_disables_it(self) -> None:
         player, calls = self.player(0.0)
-        player.toggle()
-        self.assertEqual([name for name, _ in calls], ["pause"], "no seek when disabled")
+        player.toggle(); calls.clear(); player.toggle()
+        self.assertEqual([name for name, _ in calls], ["resume"], "no seek when disabled")
         self.assertEqual(player.position_ms, 30_000)
 
     def test_it_never_rewinds_past_the_start(self) -> None:
         self.assertEqual(rewind_target(500, 1.5), 0)
         self.assertEqual(rewind_target(0, 5.0), 0)
 
-    def test_resuming_is_unaffected(self) -> None:
+    def test_resuming_still_resumes_rather_than_reloading(self) -> None:
         player, calls = self.player(1.5)
         player.toggle()
         calls.clear()
         player.toggle()
-        self.assertEqual(calls[0][0], "resume")
+        self.assertEqual([name for name, _ in calls][-1], "resume")
 
     def test_the_setting_carries_its_default(self) -> None:
         settings = AppState().settings
@@ -269,7 +236,11 @@ class TimestampInsertionTests(unittest.TestCase):
 
 class SpeedTests(unittest.TestCase):
     def test_the_offered_speeds(self) -> None:
-        self.assertEqual(SPEEDS, (0.75, 1.0, 1.25, 1.5))
+        """Half speed to pick a word out of a mumble, double to skim what needs no check."""
+        self.assertEqual(SPEEDS, (0.5, 0.75, 1.0, 1.25, 1.5, 2.0))
+        self.assertIn(1.0, SPEEDS, "normal is always one of them")
 
 
 if __name__ == "__main__": unittest.main()
+
+

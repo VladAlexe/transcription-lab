@@ -40,7 +40,7 @@ def screens(state: AppState, content: float | None = None) -> dict[str, object]:
     return {
         "recording": lambda: recording_view.build(state, noop, noop, noop, noop, validator, content),
         "transcription": lambda: transcription_view.build(state, noop, noop, "01:12"),
-        "speakers": lambda: speakers_view.build(state, noop, noop, noop, 1, 0, noop,
+        "speakers": lambda: speakers_view.build(state, noop, noop, noop, 1, noop,
                                                 {"rows": {}, "speakers": {}}, content),
         "export": lambda: export_view.build(state, noop, noop),
         "settings": lambda: settings_view.build(state, noop, noop, noop),
@@ -69,17 +69,17 @@ class ContentFitTests(unittest.TestCase):
             _, widest = layout_audit.widest(control)
             self.assertLessEqual(widest, layout.content)
 
-    def test_the_drop_card_is_capped_at_560_and_never_wider_than_its_column(self) -> None:
+    def test_the_first_screen_fits_without_scrolling(self) -> None:
+        """It was a 480px drop card, a paragraph and two more cards stacked under it."""
         state = AppState()
-        for page_width, expected in ((760, 476), (900, 560), (1280, 560), (1920, 560)):
+        for page_width in (760, 900, 1280, 1920):
             with self.subTest(width=page_width):
                 layout = measure(page_width, False)
-                control = recording_view.build(state, noop, noop, noop, noop, validator, layout.content)
-                _, widest = layout_audit.widest(control)
-                self.assertEqual(widest, min(t.EMPTY_STATE_MAX, layout.content))
-                self.assertEqual(widest, expected)
-                self.assertLessEqual(widest, t.EMPTY_STATE_MAX)
-
+                screen = recording_view.build(state, noop, noop, noop, noop, validator,
+                                              layout.content, noop, noop)
+                self.assertLessEqual(len(screen.controls), 4, "four blocks at most")
+                _, widest = layout_audit.widest(screen)
+                self.assertLessEqual(widest, layout.content)
     def test_the_welcome_screen_declares_no_fixed_width(self) -> None:
         _, widest = layout_audit.widest(welcome_view.build(noop, noop))
         self.assertLessEqual(widest, measure(760, False).content)
@@ -94,34 +94,47 @@ class ContentFitTests(unittest.TestCase):
 
 
 class ApiKeyFieldTests(unittest.TestCase):
-    """The API key input must exist and be usable on the Transcription screen."""
+    """The API key input lives in Settings now, with the provider it belongs to.
+
+    It used to be on the Transcription step while the provider that decides which key is
+    needed was chosen in Settings — two screens for one decision.
+    """
 
     def key_fields(self, control) -> list:
         return layout_audit.find(control, lambda item: isinstance(item, ft.TextField)
                                  and getattr(item, "password", False))
 
-    def test_the_key_field_is_present_for_every_provider(self) -> None:
+    def settings_for(self, provider: str, key: str = "") -> object:
         state = populated()
+        state.settings.provider = provider
+        if key:
+            state.set_active_api_key(key)
+        return settings_view.build(state, noop, noop, noop, noop)
+
+    def test_the_key_field_is_present_for_every_provider(self) -> None:
         for provider in ("gladia", "soniox", "deepgram", "openai", "compatible"):
             with self.subTest(provider=provider):
-                state.settings.provider = provider
-                fields = self.key_fields(transcription_view.build(state, noop, noop, "00:00"))
+                fields = self.key_fields(self.settings_for(provider))
                 self.assertEqual(len(fields), 1, "exactly one API key field must be rendered")
-                field = fields[0]
-                self.assertTrue(field.expand, "the key field must take the free width")
-                self.assertTrue(field.can_reveal_password)
-                self.assertTrue(field.label)
+                self.assertTrue(fields[0].can_reveal_password)
+                # The label sits above the box now, not floating in a notch cut out of its
+                # border, so it is a Text beside the field rather than a property of it.
+                screen = self.settings_for(provider)
+                names = [c.value for c in layout_audit.walk(screen)
+                         if isinstance(c, ft.Text) and c.value and "API key" in c.value]
+                self.assertEqual(len(names), 1, "and it names the provider it is for")
 
     def test_the_key_field_shows_the_provider_key_already_in_memory(self) -> None:
+        self.assertEqual(self.key_fields(self.settings_for("gladia", "gl-in-memory"))[0].value,
+                         "gl-in-memory")
+        # Switching provider shows that provider's own field, not the previous key.
+        self.assertEqual(self.key_fields(self.settings_for("deepgram"))[0].value, "")
+
+    def test_the_transcription_step_no_longer_asks_for_it(self) -> None:
         state = populated()
-        state.settings.provider = "gladia"
-        state.gladia_api_key = "gl-in-memory"
-        field = self.key_fields(transcription_view.build(state, noop, noop, "00:00"))[0]
-        self.assertEqual(field.value, "gl-in-memory")
-        # Switching provider must show that provider's own field, not the previous key.
-        state.settings.provider = "deepgram"
-        field = self.key_fields(transcription_view.build(state, noop, noop, "00:00"))[0]
-        self.assertEqual(field.value, "")
+        state.transcript_segments = []
+        self.assertEqual(self.key_fields(transcription_view.build(state, noop, noop, "00:00")),
+                         [], "one place to enter a key, not two")
 
     def test_no_wrapped_row_holds_an_expanding_child(self) -> None:
         """A Wrap cannot lay out a flexible child; the child renders with no width at all."""
@@ -143,7 +156,7 @@ class TypingFocusTests(unittest.TestCase):
         state = populated()
         seen: list[bool] = []
         refs: dict = {"rows": {}, "speakers": {}}
-        screen = speakers_view.build(state, noop, noop, noop, 1, 0, noop, refs, 960,
+        screen = speakers_view.build(state, noop, noop, noop, 1, noop, refs, 960,
                                      identities=speakers_view.identities_pane(state, noop, refs,
                                                                               seen.append, noop))
         fields = self.editable_fields(screen)
@@ -174,23 +187,25 @@ class InspectorSheetTests(unittest.TestCase):
         state = populated()
         layout = measure(page_width, True, inspector_open=True)
         refs: dict = {"rows": {}, "speakers": {}}
-        body = speakers_view.build(state, noop, noop, noop, 1, 0, noop, refs)
+        body = speakers_view.build(state, noop, noop, noop, 1, noop, refs)
         inspector = ft.Container(speakers_view.inspector(state, 1, noop, noop, noop, refs, noop), expand=True)
         app_shell(ft.Container(), ft.Container(), body, inspector, layout, refs, False)
         return refs["inspector_sheet"], layout
 
-    def test_the_open_sheet_is_opaque_and_exactly_340_wide(self) -> None:
+    def test_the_open_sheet_is_opaque_and_the_width_it_declares(self) -> None:
         for page_width in (900, 1024, 1139):   # below the docking breakpoint
             with self.subTest(width=page_width):
                 sheet, layout = self.sheet(page_width)
                 self.assertTrue(layout.sheet_open)
-                self.assertEqual(sheet.width, t.INSPECTOR_WIDTH)
-                self.assertEqual(sheet.width, 340)
+                self.assertEqual(sheet.width, t.INSPECTOR_WIDTH)  # the pane, card inside it
                 # A transparent panel would let the transcript show through the text.
-                self.assertIsNotNone(sheet.bgcolor)
+                self.assertEqual(sheet.content.bgcolor, t.surface(), "the card inside is opaque")
                 self.assertNotEqual(sheet.bgcolor, ft.Colors.TRANSPARENT)
-                self.assertEqual(sheet.bgcolor, t.surface())
-                self.assertIsNotNone(sheet.border)
+                self.assertEqual(sheet.content.bgcolor, t.surface(), "the card inside is opaque")
+                # No border: the pane is a raised card on the recessed shell, and tone is
+                # what separates them now. Twenty hairlines became four.
+                self.assertIsNone(sheet.border)
+                self.assertEqual(sheet.content.border_radius, t.RADIUS)
 
     def test_the_body_shrinks_by_exactly_the_sheet_width(self) -> None:
         layout = measure(1024, True, inspector_open=True)
@@ -203,8 +218,7 @@ class InspectorSheetTests(unittest.TestCase):
         sheet, layout = self.sheet(1600)
         self.assertTrue(layout.docked_inspector)
         self.assertFalse(layout.sheet_open)
-        self.assertEqual(sheet.width, 340)
-        self.assertEqual(sheet.bgcolor, t.surface())
+        self.assertEqual(sheet.content.bgcolor, t.surface(), "the card inside is opaque")
 
     def test_a_closed_inspector_leaves_the_body_whole(self) -> None:
         layout = measure(1024, True, inspector_open=False)

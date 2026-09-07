@@ -97,18 +97,34 @@ class FilterTests(unittest.TestCase):
         segments = transcript("xx..x")
         picked: list[int] = []
         refs: dict = {}
-        transcript_list(segments, r.visible_order(segments, True), {}, {}, None, 0, 80,
-                        picked.append, noop, refs, 400)
+        transcript_list(segments, r.visible_order(segments, True), {}, {}, None,
+                        picked.append, refs, 400)
         self.assertEqual(refs["page_order"], [2, 3])
-        rows = sorted(k for k in refs if isinstance(k, int))
-        self.assertEqual(rows, [2, 3], "rows are keyed by position in the interview")
-        refs[3]["container"].on_click(None)
+        self.assertEqual(sorted(refs["rows"]), [2, 3],
+                         "rows are keyed by position in the interview")
+        refs["rows"][3]["container"].on_click(None)
         self.assertEqual(picked, [3], "selecting row two of the filter selects turn three")
+
+    def test_the_row_registry_holds_rows_and_nothing_else(self) -> None:
+        """A string key in here crashed the app: applying a speaker name walks these keys
+        and compares each to the segment count."""
+        refs: dict = {}
+        segments = transcript("....")
+        transcript_list(segments, r.visible_order(segments), {}, {}, None,
+                        noop, refs, 400)
+        self.assertTrue(refs["rows"], "there are rows to hold")
+        for key in refs["rows"]:
+            with self.subTest(key=key):
+                self.assertIsInstance(key, int)
+        for handle in ("listing", "page_offset", "page_order"):
+            with self.subTest(handle=handle):
+                self.assertIn(handle, refs, "the list's own handles sit beside the rows")
+                self.assertNotIn(handle, refs["rows"], "never inside them")
 
     def test_the_filtered_list_says_so_when_it_is_empty(self) -> None:
         segments = transcript("xxx")
-        listing = transcript_list(segments, r.visible_order(segments, True), {}, {}, None, 0, 80,
-                                  noop, noop, {}, 400)
+        listing = transcript_list(segments, r.visible_order(segments, True), {}, {}, None,
+                                  noop, {}, 400)
         shown = [c.value for c in layout_audit.walk(listing) if isinstance(c, ft.Text) and c.value]
         self.assertIn(s.ALL_CHECKED, shown)
 
@@ -226,12 +242,14 @@ class StripTests(unittest.TestCase):
         return review_strip(r.Progress(checked, total), only, noop,
                             noop if resume else None, "00:41:12", {})
 
-    def test_it_shows_a_track_and_the_count(self) -> None:
+    def test_it_shows_a_ring_and_the_count(self) -> None:
+        """A four-pixel track at thirteen per cent is a twenty-four-pixel smudge: rendered,
+        and invisible. A ring reads at a glance in a tenth of the width."""
         control = self.strip()
-        bars = layout_audit.find(control, lambda c: isinstance(c, ft.ProgressBar))
-        self.assertEqual(len(bars), 1)
-        self.assertAlmostEqual(bars[0].value, 142 / 536)
-        self.assertLessEqual(bars[0].bar_height, 6, "slim, not a component in its own right")
+        rings = layout_audit.find(control, lambda c: isinstance(c, ft.ProgressRing))
+        self.assertEqual(len(rings), 1)
+        self.assertAlmostEqual(rings[0].value, 142 / 536)
+        self.assertLessEqual(rings[0].width, 32, "it lives on the toolbar line")
         shown = [c.value for c in layout_audit.walk(control) if isinstance(c, ft.Text) and c.value]
         self.assertIn("142 / 536 checked, 26%", shown)
 
@@ -242,19 +260,19 @@ class StripTests(unittest.TestCase):
                   if isinstance(c, ft.Button) and getattr(c, "bgcolor", None) == t.primary()]
         self.assertEqual(filled, [])
 
-    def test_the_filter_is_a_plain_toggle(self) -> None:
-        boxes = layout_audit.find(self.strip(only=True), lambda c: isinstance(c, ft.Checkbox))
-        self.assertEqual(len(boxes), 1)
-        self.assertEqual(boxes[0].label, s.ONLY_UNCHECKED)
-        self.assertTrue(boxes[0].value)
+    def test_the_filter_is_one_button_that_says_what_it_does(self) -> None:
+        buttons = [c for c in layout_audit.find(self.strip(only=True),
+                                                lambda c: isinstance(c, ft.IconButton))
+                   if c.tooltip == s.ONLY_UNCHECKED_TOOLTIP]
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(buttons[0].icon, ft.Icons.FILTER_ALT, "on")
 
     def test_resume_appears_only_when_there_is_somewhere_to_go(self) -> None:
-        offered = [c.content for c in layout_audit.walk(self.strip())
-                   if isinstance(getattr(c, "content", None), str)]
-        self.assertIn(s.RESUME, offered)
-        absent = [c.content for c in layout_audit.walk(self.strip(resume=False))
-                  if isinstance(getattr(c, "content", None), str)]
-        self.assertNotIn(s.RESUME, absent)
+        def resume_buttons(control):
+            return [c for c in layout_audit.find(control, lambda x: isinstance(x, ft.IconButton))
+                    if c.icon == ft.Icons.HISTORY]
+        self.assertEqual(len(resume_buttons(self.strip())), 1)
+        self.assertEqual(resume_buttons(self.strip(resume=False)), [])
 
 
 class ResumeTests(unittest.TestCase):

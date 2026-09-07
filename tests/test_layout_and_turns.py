@@ -104,11 +104,12 @@ class ShellGeometryTests(unittest.TestCase):
                     self.assertLessEqual(layout.content, layout.workspace)
 
     def test_the_inspector_docks_only_at_or_above_the_breakpoint(self) -> None:
-        self.assertEqual(t.INSPECTOR_BREAKPOINT, 1140)
-        self.assertFalse(measure(1139, True).docked_inspector)
-        self.assertTrue(measure(1140, True).docked_inspector)
+        self.assertEqual(t.INSPECTOR_BREAKPOINT,
+                         t.NAV_WIDTH + t.WORKSPACE_MIN + t.INSPECTOR_WIDTH)
+        self.assertFalse(measure(t.INSPECTOR_BREAKPOINT - 1, True).docked_inspector)
+        self.assertTrue(measure(t.INSPECTOR_BREAKPOINT, True).docked_inspector)
         # Below the breakpoint the workspace keeps the full remainder; the inspector floats.
-        self.assertEqual(measure(1139, True).inspector, 0)
+        self.assertEqual(measure(t.INSPECTOR_BREAKPOINT - 1, True).inspector, 0)
         self.assertEqual(measure(1139, True).workspace, 1139 - t.NAV_WIDTH)
 
     def test_the_workspace_never_drops_below_the_minimum_while_docked(self) -> None:
@@ -118,8 +119,8 @@ class ShellGeometryTests(unittest.TestCase):
     def test_fixed_pane_widths(self) -> None:
         layout = measure(1600, True)
         self.assertEqual(layout.nav, 220)
-        self.assertEqual(layout.inspector, 340)
-        self.assertEqual(layout.workspace, 1600 - 220 - 340)
+        self.assertEqual(layout.inspector, t.INSPECTOR_WIDTH)
+        self.assertEqual(layout.workspace, 1600 - 220 - t.INSPECTOR_WIDTH)
 
     def test_content_is_capped_and_gutters_are_symmetric(self) -> None:
         wide = measure(2560, False)

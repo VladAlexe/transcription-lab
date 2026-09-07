@@ -1,4 +1,4 @@
-"""Furnizorul OpenAI `gpt-4o-transcribe-diarize`.
+"""The OpenAI `gpt-4o-transcribe-diarize` provider.
 
 The logic moved here from `transcription.py`, which remains a compatibility shim. This
 provider fragments the recording to stay under the API's size limit, and diarization is
@@ -18,7 +18,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 from audio_processing import create_chunks, probe_audio
 from models import AudioChunk, MediaToolPaths, TranscriptSegment
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
-                            TranscriptionProvider, emit_progress)
+                            TranscriptionProvider, emit_progress, language_code)
 
 MODEL = "gpt-4o-transcribe-diarize"
 DEFAULT_LANGUAGE = "ro"
@@ -64,11 +64,16 @@ def _friendly(exc: Exception) -> str:
 def transcribe_chunk(api_key: str, chunk: AudioChunk, attempts: int = 3,
                      language: str = DEFAULT_LANGUAGE) -> list[TranscriptSegment]:
     client = OpenAI(api_key=api_key)
+    # "Detect automatically" means send no language at all; the model then works it out.
+    # Passing the word "auto" would reach the API as a language code and be rejected.
+    code = language_code(language, DEFAULT_LANGUAGE)
+    options: dict[str, Any] = {"model": MODEL, "response_format": "diarized_json",
+                               "chunking_strategy": "auto"}
+    if code: options["language"] = code
     for attempt in range(1, attempts + 1):
         try:
             with Path(chunk.path).open("rb") as audio:
-                response = client.audio.transcriptions.create(model=MODEL, file=audio,
-                    response_format="diarized_json", chunking_strategy="auto", language=language or DEFAULT_LANGUAGE)
+                response = client.audio.transcriptions.create(file=audio, **options)
             return parse_response(response, chunk)
         except AuthenticationError as exc: raise TranscriptionError(_friendly(exc)) from exc
         except (APIConnectionError, APITimeoutError, RateLimitError) as exc:
@@ -137,5 +142,7 @@ class OpenAIDiarizeProvider(TranscriptionProvider):
         def api(current: int, total: int, message: str) -> None:
             emit_progress(progress_cb, message, PREPARATION_SHARE + (1 - PREPARATION_SHARE) * (current - 1) / max(total, 1))
 
-        transcriber = partial(transcribe_chunk, language=language) if language and language != DEFAULT_LANGUAGE else None
-        return transcribe_chunks(self.api_key, self.chunks, api, self.cancelled, transcriber)
+        # Always bind the chosen language rather than only when it differs from the default:
+        # the previous test let "auto" through as a code on the very path meant to avoid it.
+        return transcribe_chunks(self.api_key, self.chunks, api, self.cancelled,
+                                 partial(transcribe_chunk, language=language or DEFAULT_LANGUAGE))

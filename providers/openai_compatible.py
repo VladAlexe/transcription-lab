@@ -1,7 +1,7 @@
 """A generic provider for any OpenAI-compatible endpoint.
 
 The researcher supplies the base address, the model name and their own key; the application
-`POST {base_url}/audio/transcriptions` cu `response_format=verbose_json`.
+`POST {base_url}/audio/transcriptions` with `response_format=verbose_json`.
 
 This provider does NOT diarize: all the text gets one default speaker label, and splitting
 and naming the speakers is left to the researcher. The response may be as thin as it likes
@@ -15,7 +15,7 @@ from typing import Any
 
 from models import TranscriptSegment, Word
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
-                            TranscriptionProvider, emit_progress, whole_file_segment)
+                            TranscriptionProvider, emit_progress, language_code, whole_file_segment)
 from providers.http import UPLOAD_TIMEOUT, upload_file
 
 SERVICE = "the configured endpoint"
@@ -64,8 +64,12 @@ def parse_response(payload: dict[str, Any]) -> tuple[list[TranscriptSegment], bo
             words = [_word(item) for item in raw.get("words") or [] if isinstance(item, dict)]
             segments.append(whole_file_segment(DEFAULT_SPEAKER, text, start, end, words, None))
         if segments:
+            # Word timings only if words actually came back. `verbose_json` carries segment
+            # intervals but no words unless the server was asked for word granularity, and
+            # claiming them regardless offered a "Play by word" mode with nothing in it.
+            timed = any(item.words for item in segments)
             # A stable sort keeps the order even when every timing is identical.
-            return sorted(segments, key=lambda s: (s.absolute_start, s.absolute_end)), True
+            return sorted(segments, key=lambda s: (s.absolute_start, s.absolute_end)), timed
 
     text = str(payload.get("text") or "").strip()
     blocks = _paragraphs(text)
@@ -108,7 +112,9 @@ class OpenAICompatibleProvider(TranscriptionProvider):
         url = endpoint(self.base_url)
 
         fields = {"model": self.model, "response_format": "verbose_json"}
-        if language: fields["language"] = language
+        # No language field at all is how an OpenAI-compatible server is told to detect it.
+        code = language_code(language, DEFAULT_LANGUAGE)
+        if code: fields["language"] = code
         # Synchronous like Deepgram: upload and transcription share one request, so it needs
         # the long timeout, and upload_file already retries a dropped connection.
         payload = upload_file(SERVICE, url, {"Authorization": f"Bearer {self.api_key}"}, path, "file", fields,

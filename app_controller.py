@@ -7,6 +7,7 @@ from app_state import AppState, ExportMetadata, PreparationSettings
 import strings as s
 from audio_processing import compress_for_upload, extract_range, probe_audio, should_compress
 from time_range import TimeRange, format_timecode, shift_segments
+import annotations as an
 from document_export import make_docx, make_json, project_payload, readable_transcript
 import find_replace
 from models import AudioChunk, AudioInfo, TranscriptSegment
@@ -23,6 +24,9 @@ class AppController:
     def __init__(self,state:AppState|None=None): self.state=state or AppState(); self._lock=threading.Lock()
 
     def select_recording(self,path:str) -> AudioInfo:
+        # A new recording is a new project. Without this the previous project's file stayed
+        # remembered, and the next save quietly wrote the new work over the old interview.
+        self.state.project_path=None
         info=probe_audio(path,self.state.media_tools); self.state.selected_file_path=info.path; self.state.selected_file_metadata=info
         self.state.audio_filename=info.filename; self.state.audio_bytes=info.size_bytes; self.bind_audio(info.path)
         self.state.current_workflow_step=0; self.state.dirty=True; self.state.activity_log.append(s.LOG_FILE_ANALYSED); return info
@@ -116,9 +120,60 @@ class AppController:
     def map_speaker(self,speaker_id:str,name:str)->None:
         self.state.speaker_mapping[speaker_id]=name.strip() or speaker_id; self.state.dirty=True
 
-    def correct_segment(self,index:int,text:str|None)->None:
-        self.state.transcript_segments[index].corrected_text=text if text and text!=self.state.transcript_segments[index].original_text else None
+    def annotate_segment(self,index:int,note:str)->bool:
+        """Attach or clear a researcher's note on one turn. True when it changed.
+
+        Kept apart from the text: a note is about the transcript, not part of it, so it
+        never reaches `corrected_text` and never appears in the TXT export or the body of
+        the Word document.
+        """
+        if not (0<=index<len(self.state.transcript_segments)): return False
+        note=(note or "").strip()
+        if self.state.transcript_segments[index].note==note: return False
+        self.state.transcript_segments[index].note=note
         self.state.dirty=True
+        return True
+
+    def correct_segment(self,index:int,text:str|None)->None:
+        segment=self.state.transcript_segments[index]
+        before=segment.text
+        segment.corrected_text=text if text and text!=segment.original_text else None
+        # Character offsets stop pointing at the same words the moment a word is inserted
+        # before them, so every mark is re-found by the phrase it was placed on. One whose
+        # phrase no longer exists is dropped rather than left pointing somewhere wrong.
+        if segment.annotations and segment.text!=before:
+            segment.annotations=an.reanchor(segment.annotations,before,segment.text)
+        self.state.dirty=True
+
+    # ── Marking part of a turn ───────────────────────────────────────────
+    # A note answers "this turn needs attention". These answer "this phrase" — which is
+    # what a researcher quoting an interview actually reaches for.
+    def mark_selection(self,index:int,start:int,end:int,kind:str,slot:str="1",note:str="")->bool:
+        """Bold, highlight, or comment on a range of the turn's text. False if it is empty."""
+        if not (0<=index<len(self.state.transcript_segments)): return False
+        segment=self.state.transcript_segments[index]
+        marks=an.add(segment.annotations,start,end,segment.text,kind,slot,note)
+        if marks==segment.annotations: return False
+        segment.annotations=marks; self.state.dirty=True
+        return True
+
+    def clear_marks(self,index:int,start:int,end:int)->bool:
+        """Take every mark off a range, whatever kind it is."""
+        if not (0<=index<len(self.state.transcript_segments)): return False
+        segment=self.state.transcript_segments[index]
+        marks=an.remove(segment.annotations,start,end,segment.text)
+        if len(marks)==len(segment.annotations): return False
+        segment.annotations=marks; self.state.dirty=True
+        return True
+
+    def drop_mark(self,index:int,mark:object)->bool:
+        """Remove one particular mark, the one the researcher pointed at."""
+        if not (0<=index<len(self.state.transcript_segments)): return False
+        segment=self.state.transcript_segments[index]
+        remaining=[m for m in segment.annotations if m is not mark]
+        if len(remaining)==len(segment.annotations): return False
+        segment.annotations=remaining; self.state.dirty=True
+        return True
 
     # ── Who said this ────────────────────────────────────────────────────
     # Diarization labels a voice, not a person. These two corrections are the ones
@@ -205,13 +260,15 @@ class AppController:
         if not info: raise RuntimeError(s.ERROR_METADATA_MISSING)
         meta=self.state.export_metadata; md={s.DOC_PROJECT_ID:meta.project_id,s.DOC_INTERVIEW_DATE:meta.interview_date,s.DOC_NOTES:meta.notes}
         if kind=="docx": write_bytes(path,make_docx(info,self.state.transcript_segments,self.state.speaker_mapping,self.state.generated_at,
-            meta.title,md,meta.include_timestamps,meta.include_notice,self.state.transcription_model))
+            meta.title,md,meta.include_timestamps,meta.include_notice,self.state.transcription_model,
+            (self.state.settings.reviewer or "").strip(),self.state.settings.highlight_labels))
         elif kind=="txt": write_text(path,readable_transcript(self.state.transcript_segments,self.state.speaker_mapping,meta.include_timestamps))
         elif kind=="json":
             payload=project_payload(info,self.state.generated_chunks,self.state.transcript_segments,self.state.speaker_mapping,
                 self.state.generated_at,md,self.state.settings.include_source_path_json,self.state.current_workflow_step,
                 self.state.transcription_provider,self.state.transcription_model,self.state.range_start,self.state.range_end,
-                self.state.last_reviewed_index)
+                self.state.last_reviewed_index,self.state.settings.highlight_labels,
+                self.state.settings.reviewer)
             if not meta.include_original_labels:
                 for item in payload["segments"]: item.pop("original_speaker",None);item.pop("speaker_id",None)
             write_bytes(path,json.dumps(payload,ensure_ascii=False,indent=2).encode("utf-8"))
@@ -222,7 +279,8 @@ class AppController:
         payload=project_payload(self.state.selected_file_metadata,self.state.generated_chunks,self.state.transcript_segments,
             self.state.speaker_mapping,self.state.generated_at,self.state.export_metadata.__dict__,True,self.state.current_workflow_step,
             self.state.transcription_provider,self.state.transcription_model,self.state.range_start,self.state.range_end,
-            self.state.last_reviewed_index)
+            self.state.last_reviewed_index,self.state.settings.highlight_labels,
+            self.state.settings.reviewer)
         # The player needs somewhere to come back to; the audio itself is never embedded.
         if not payload.get("audio_path") and self.state.audio_path: payload["audio_path"]=self.state.audio_path
         write_text(path,json.dumps(payload,ensure_ascii=False,indent=2)); self.state.project_path=path; self.state.dirty=False
@@ -266,5 +324,13 @@ class AppController:
         except AttributeError: stored=None
         self.state.last_reviewed_index=stored if isinstance(stored,int) and 0<=stored<len(segments) else None
         self.state.show_only_unchecked=False
+        # The colour code travels with the project, so a reopened interview still says what
+        # each highlight meant. A project saved before this simply keeps the current names.
+        legend=[str(name) for name in (data.get("highlight_legend") or []) if isinstance(name,str)]
+        if legend: self.state.settings.highlight_labels=(legend+["","",""])[:3]
+        # A name already in Settings is not overwritten by an empty one from an older file.
+        stored_reviewer=review.get("reviewer") if isinstance(review,dict) else None
+        if isinstance(stored_reviewer,str) and stored_reviewer.strip():
+            self.state.settings.reviewer=stored_reviewer.strip()
         self.state.current_workflow_step=max(2,int(data.get("workflow_step",2))) if segments else 0
         self.state.project_path=path; self.state.dirty=False

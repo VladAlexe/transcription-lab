@@ -22,6 +22,24 @@ ProgressCallback = Callable[[str, float | None], None]
 # Signals a cancellation asked for by the user; providers check it between stages.
 CancelCallback = Callable[[], bool]
 
+# Settings offers "Detect automatically" alongside the six named languages. It is not a
+# language code, and every API here rejects it as one, so each provider has to translate it
+# into whatever that service calls detection — a `detect_language` flag, or simply saying
+# nothing at all. This is the one place that recognises it.
+AUTO_LANGUAGE = "auto"
+
+
+def detect_requested(language: str | None) -> bool:
+    """True when the researcher asked the provider to work the language out for itself."""
+    return (language or "").strip().lower() == AUTO_LANGUAGE
+
+
+def language_code(language: str | None, default: str) -> str | None:
+    """The code to send, or None when the provider should be left to detect it."""
+    cleaned = (language or "").strip()
+    if not cleaned: return default
+    return None if detect_requested(cleaned) else cleaned
+
 
 class ProviderError(RuntimeError):
     """An error already phrased for the researcher, raised by any provider.

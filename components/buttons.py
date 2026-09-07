@@ -1,24 +1,28 @@
 """Buttons, one weight each.
 
-A screen carries exactly one filled sage button — the thing to do next. Everything else is
-an outline or a text button in charcoal, so the eye lands on the primary action first and
-nothing else argues with it. Icon buttons all get the same 40px hit area and the same soft
-sage hover, so a control is discoverable by pointing at it.
+A screen carries exactly one filled accent button — the thing to do next. Everything else
+is an outline or a text button in the ink colour, so the eye lands on the primary action
+first and nothing else argues with it. Icon buttons all get the same 40px hit area and the
+same soft accent hover, so a control is discoverable by pointing at it.
 """
 from __future__ import annotations
 from typing import Callable
 import flet as ft
 import design_tokens as t
 
-BUTTON_HEIGHT = 42
+BUTTON_HEIGHT = 34
 
 
 def primary_button(text:str,on_click:Callable|None,icon:ft.IconData|None=None,disabled:bool=False)->ft.Button:
     """The one filled action per screen."""
+    # The overlay used to be the label colour — white ink washed over a green button, so
+    # pointing at it made it fade out instead of respond. Hover deepens it now.
     return ft.Button(text,icon=icon,on_click=on_click,disabled=disabled,height=BUTTON_HEIGHT,
         bgcolor=t.primary(),color=t.on_primary(),elevation=0,
-        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=t.R_SM),padding=ft.Padding(t.S16,0,t.S16,0),
-            overlay_color=t.on_primary()))
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=t.RADIUS),
+            padding=ft.Padding(t.S16,0,t.S16,0),
+            overlay_color={ft.ControlState.HOVERED:t.primary_hover(),
+                           ft.ControlState.PRESSED:t.primary_hover()}))
 
 
 def secondary_button(text:str,on_click:Callable|None,icon:ft.IconData|None=None,disabled:bool=False)->ft.OutlinedButton:
@@ -38,7 +42,7 @@ def tertiary_button(text:str,on_click:Callable|None,icon:ft.IconData|None=None,d
 
 def icon_button(icon:ft.IconData,tooltip:str,on_click:Callable|None,size:float=18,
                 color:str|None=None,disabled:bool=False)->ft.IconButton:
-    """A 40px square hit area around a small glyph, with a soft sage hover.
+    """A 40px square hit area around a small glyph, with a soft accent hover.
 
     An 18px icon is a 18px target unless it is given one; every icon control in the app
     goes through here so they are all the same size to point at and all react the same way.

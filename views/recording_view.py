@@ -8,7 +8,7 @@ from audio_processing import estimated_chunk_count
 from components.buttons import primary_button,secondary_button
 from components.empty_state import file_empty_state
 from providers import provider_info
-from theme import card,collapsible_card,note,page_title,section_title
+from theme import collapsible_card,note,page_title
 from time_range import format_timecode
 from utils import human_size
 
@@ -73,16 +73,16 @@ def _byok_card(provider_label:str,on_settings:Callable[[],None]|None)->ft.Contro
     a warning, and it names both places involved: the provider lives in Settings, the key
     is entered on the Transcription step.
     """
-    body=ft.Column([ft.Text(s.BYOK_TITLE,size=t.TYPE_SUBHEADING,weight=ft.FontWeight.W_600,
+    body=ft.Column([ft.Text(s.BYOK_TITLE,size=t.TYPE_BODY,weight=ft.FontWeight.W_600,
             color=t.on_surface()),
-        ft.Text(s.BYOK_BODY,size=t.TYPE_LABEL,color=t.on_surface_variant()),
-        ft.Text(s.MODEL_LINE.format(model=provider_label),size=t.TYPE_CAPTION,color=t.muted())],
-        spacing=t.S4,tight=True,expand=True)
-    row:list[ft.Control]=[ft.Icon(ft.Icons.KEY_OUTLINED,size=20,color=t.muted()),body]
+        ft.Text(s.BYOK_BODY,size=t.TYPE_META,color=t.on_surface_variant(),max_lines=2)],
+        spacing=1,tight=True,expand=True)
+    row:list[ft.Control]=[ft.Icon(ft.Icons.KEY_OUTLINED,size=17,color=t.muted()),body]
     if on_settings is not None:
         row.append(secondary_button(s.BYOK_ACTION,lambda e:on_settings(),ft.Icons.SETTINGS_OUTLINED))
-    return card(ft.Row(row,spacing=t.S16,vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        variant=True)
+    return ft.Container(ft.Row(row,spacing=t.S12,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=ft.Padding(t.CARD_PADDING,t.S12,t.CARD_PADDING,t.S12),
+        bgcolor=t.surface_variant(),border_radius=t.RADIUS)
 
 
 def build(state:AppState,on_choose:Callable[[],None],on_remove:Callable[[],None],on_continue:Callable[[],None],
@@ -93,23 +93,39 @@ def build(state:AppState,on_choose:Callable[[],None],on_remove:Callable[[],None]
     provider=provider_info(state.settings.provider)
     needs_key=not state.active_api_key
     if not info:
-        # Two ways in, stated plainly: start a new recording, or reopen a saved transcript.
-        blocks:list[ft.Control]=[page_title(s.RECORDING_TITLE,s.RECORDING_SUBTITLE,step=1),
-            ft.Container(height=t.S8),
-            file_empty_state(lambda e:on_choose(),content_width),
-            ft.Row([ft.Text(s.EMPTY_RECORDING_HINT,size=t.TYPE_LABEL,color=t.muted(),
-                text_align=ft.TextAlign.CENTER,expand=True)])]
-        if needs_key: blocks.append(_byok_card(provider.label,on_open_settings))
+        # One screen, no scrolling: the drop target, the key notice and the way back to a
+        # saved project. It used to be a 480px empty state, a paragraph, then two cards.
+        blocks:list[ft.Control]=[
+            ft.Column([
+                ft.Text(s.RECORDING_TITLE,size=t.TYPE_DISPLAY,weight=ft.FontWeight.W_600,
+                    color=t.on_surface()),
+                ft.Text(s.RECORDING_SUBTITLE,size=t.TYPE_META,color=t.muted())],
+                spacing=2,tight=True),
+            ft.Container(ft.Column([
+                ft.Icon(ft.Icons.UPLOAD_FILE_OUTLINED,size=26,color=t.muted()),
+                ft.Text(s.EMPTY_RECORDING_TITLE,size=t.TYPE_BODY,weight=ft.FontWeight.W_600,
+                    color=t.on_surface()),
+                ft.Text(s.EMPTY_RECORDING_BODY,size=t.TYPE_META,color=t.muted()),
+                ft.Container(height=t.S4),
+                primary_button(s.CHOOSE_FILE,lambda e:on_choose(),ft.Icons.FOLDER_OPEN),
+                ft.Text(s.EMPTY_RECORDING_HINT,size=t.TYPE_META,color=t.muted(),
+                    text_align=ft.TextAlign.CENTER)],
+                spacing=t.S8,tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=t.S32,bgcolor=t.surface(),border_radius=t.RADIUS,
+                alignment=ft.Alignment.CENTER)]
+        if not state.active_api_key:
+            blocks.append(_byok_card(provider.label,on_open_settings))
         if on_open_project is not None:
-            blocks.append(card(ft.Row([
-                ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED,size=20,color=t.muted()),
-                ft.Column([ft.Text(s.OPEN_EXISTING_TITLE,size=t.TYPE_SUBHEADING,
-                        weight=ft.FontWeight.W_500,color=t.on_surface()),
-                    ft.Text(s.OPEN_EXISTING_BODY,size=t.TYPE_LABEL,color=t.on_surface_variant())],
-                    spacing=2,tight=True,expand=True),
+            blocks.append(ft.Container(ft.Row([
+                ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED,size=17,color=t.muted()),
+                ft.Text(s.OPEN_EXISTING_TITLE,size=t.TYPE_BODY,weight=ft.FontWeight.W_500,
+                    color=t.on_surface(),expand=True),
                 secondary_button(s.OPEN_EXISTING_ACTION,lambda e:on_open_project())],
-                spacing=t.S16,vertical_alignment=ft.CrossAxisAlignment.CENTER)))
-        return ft.Column(blocks,spacing=t.S24)
+                spacing=t.S12,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.Padding(t.CARD_PADDING,t.S12,t.CARD_PADDING,t.S12),
+                bgcolor=t.surface(),border_radius=t.RADIUS))
+        return ft.Column(blocks,spacing=t.S12)
 
     quality_text=(s.QUALITY_ORIGINAL if state.settings.preserve_original
         else s.QUALITY_COMPATIBLE.format(bitrate=state.settings.fallback_bitrate_kbps))
@@ -121,16 +137,23 @@ def build(state:AppState,on_choose:Callable[[],None],on_remove:Callable[[],None]
     header=ft.Row([ft.Container(ft.Icon(ft.Icons.AUDIO_FILE_OUTLINED,size=22,color=t.muted()),width=44,height=44,
         bgcolor=t.surface_variant(),border=ft.Border.all(1,t.outline()),border_radius=t.R_MD,alignment=ft.Alignment.CENTER),
         ft.Text(s.FIELD_SOURCE_QUALITY,size=t.TYPE_LABEL,color=t.muted(),expand=True)],spacing=t.S16)
-    details=collapsible_card(info.filename,
-        ft.Column([header,ft.Divider(height=1,color=t.outline()),
-            ft.ResponsiveRow([_metric(label,value) for label,value in metrics],run_spacing=t.S16)],spacing=t.S24),
-        info.path)
+    facts=" · ".join(f"{label}: {value}" for label,value in metrics)
+    details=ft.Container(ft.Column([
+        ft.Row([ft.Icon(ft.Icons.AUDIO_FILE_OUTLINED,size=18,color=t.muted()),
+            ft.Column([ft.Text(info.filename,size=t.TYPE_BODY,weight=ft.FontWeight.W_600,
+                    color=t.on_surface(),max_lines=1,overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Text(info.path,size=t.TYPE_META,color=t.muted(),max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS)],spacing=1,tight=True,expand=True),
+            secondary_button(s.CHANGE_FILE,lambda e:on_choose())],
+            spacing=t.S12,vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ft.Text(facts,size=t.TYPE_META,color=t.on_surface_variant())],spacing=t.S8),
+        padding=t.CARD_PADDING,bgcolor=t.surface(),border_radius=t.RADIUS)
 
     quality=ft.RadioGroup(value="original" if state.settings.preserve_original else "compatible",
         on_change=lambda e:on_quality(e.control.value=="original"),
         content=ft.Column([ft.Radio(s.RADIO_ORIGINAL,value="original",label_style=ft.TextStyle(size=t.TYPE_SECONDARY)),
             ft.Radio(s.RADIO_COMPATIBLE,value="compatible",label_style=ft.TextStyle(size=t.TYPE_SECONDARY))],spacing=0))
-    preparation=collapsible_card(s.QUALITY_TITLE,ft.Column([note(provider.transfer_note),quality],spacing=t.S16))
+    preparation=collapsible_card(s.QUALITY_TITLE,ft.Column([note(s.QUALITY_TRANSFER),quality],spacing=t.S16))
     range_card,proceed=_range_card(state,on_range,on_continue)
 
     return ft.Column([page_title(s.RECORDING_TITLE,s.RECORDING_SUBTITLE,step=1),details,range_card,preparation,

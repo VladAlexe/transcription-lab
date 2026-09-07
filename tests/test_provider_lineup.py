@@ -38,6 +38,12 @@ VERBOSE_JSON = {"task": "transcribe", "language": "ro", "duration": 12.5, "text"
                 "segments": [{"id": 0, "start": 0.0, "end": 4.0, "text": " Bună ziua."},
                              {"id": 1, "start": 4.0, "end": 8.5, "text": " Mulțumim."}]}
 
+# What a server sends when it was asked for word granularity: the same shape, plus words.
+WORD_JSON = {"task": "transcribe", "language": "ro", "duration": 5.0, "text": "Bună ziua.",
+             "segments": [{"id": 0, "start": 0.0, "end": 4.0, "text": " Bună ziua.",
+                           "words": [{"word": "Bună", "start": 0.0, "end": 0.6},
+                                     {"word": "ziua", "start": 0.6, "end": 1.1}]}]}
+
 TEXT_ONLY = {"text": "Primul paragraf al discuției.\n\nAl doilea paragraf, alt subiect.\n\nUltimul paragraf."}
 
 
@@ -234,11 +240,19 @@ class OpenAICompatibleTests(_AudioCase):
         self.assertEqual(segments[1].absolute_start, 4.0)
         # No diarization: one default speaker for the whole transcript.
         self.assertEqual({item.speaker_id for item in segments}, {"Speaker 1"})
-        self.assertTrue(provider.capabilities().supports_word_timestamps)
+        # `verbose_json` carries segment intervals but no words unless the server was asked
+        # for word granularity. Claiming word timestamps anyway offered a "Play by word"
+        # mode with nothing in it, so the capability now follows what actually arrived.
+        self.assertFalse(provider.capabilities().supports_word_timestamps)
         self.assertFalse(provider.capabilities().supports_diarization)
         self.assertFalse(provider.capabilities().supports_confidence)
         self.assertIn("/audio/transcriptions", calls[0]["url"])
         self.assertEqual(calls[0]["headers"].get("authorization"), "Bearer own-key")
+
+    def test_word_timestamps_are_claimed_when_words_actually_arrive(self) -> None:
+        provider, segments, _ = self.transcribe(WORD_JSON)
+        self.assertEqual([w.text for w in segments[0].words], ["Bună", "ziua"])
+        self.assertTrue(provider.capabilities().supports_word_timestamps)
 
     def test_text_only_response_becomes_one_segment_per_paragraph(self) -> None:
         provider, segments, _ = self.transcribe(TEXT_ONLY)
@@ -362,3 +376,36 @@ class ProvenanceTests(_AudioCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class DetectLanguageTests(unittest.TestCase):
+    """Settings offers "Detect automatically". It is not a language code, and every one of
+    these APIs rejects it as one, so each provider has to say detection in its own words."""
+
+    def test_a_named_language_reaches_gladia_exactly_as_before(self) -> None:
+        """The path already in use must not move because the auto path was fixed."""
+        from providers.gladia import request_payload
+        self.assertEqual(request_payload("url", "ro"),
+                         {"audio_url": "url", "diarization": True, "language": "ro",
+                          "detect_language": False})
+
+    def test_gladia_asks_for_detection_instead_of_sending_the_word_auto(self) -> None:
+        from providers.gladia import request_payload
+        payload = request_payload("url", "auto")
+        self.assertTrue(payload["detect_language"])
+        self.assertNotIn("language", payload)
+
+    def test_deepgram_uses_its_own_detection_flag(self) -> None:
+        from providers.deepgram import request_params
+        params = request_params("auto")
+        self.assertEqual(params.get("detect_language"), "true")
+        self.assertNotIn("language", params)
+
+    def test_soniox_is_given_no_hint_at_all(self) -> None:
+        from providers.soniox import request_payload
+        self.assertNotIn("language_hints", request_payload("file-1", "auto"))
+        self.assertEqual(request_payload("file-1", "ro")["language_hints"], ["ro"])
+
+    def test_an_empty_language_still_falls_back_to_the_default(self) -> None:
+        from providers.gladia import request_payload
+        self.assertEqual(request_payload("url", "")["language"], "ro")
