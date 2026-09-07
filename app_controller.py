@@ -118,7 +118,30 @@ class AppController:
     def cancel(self)->None: self.state.cancellation_flag=True
 
     def map_speaker(self,speaker_id:str,name:str)->None:
-        self.state.speaker_mapping[speaker_id]=name.strip() or speaker_id; self.state.dirty=True
+        mapping=self.state.speaker_mapping
+        before=mapping.get(speaker_id)
+        cleaned=name.strip() or speaker_id
+        if mapping.get(speaker_id)==cleaned: return
+        def restore(key=speaker_id,value=before)->None:
+            if value is None: mapping.pop(key,None)
+            else: mapping[key]=value
+        self.state.history.record(s.UNDO_RENAME.format(speaker=before or speaker_id),restore)
+        mapping[speaker_id]=cleaned; self.state.dirty=True
+
+    def duplicate_name(self,speaker_id:str,name:str)->str|None:
+        """Another label already shown under this name, if there is one.
+
+        Two speakers with the same name is nearly always a slip, and it makes the transcript
+        ambiguous everywhere it is read. It is not refused — sometimes it is a step on the
+        way to merging them — but it is said out loud rather than accepted in silence.
+        """
+        cleaned=(name or "").strip()
+        if not cleaned: return None
+        labels={segment.speaker_id for segment in self.state.transcript_segments}
+        for other in labels:
+            if other!=speaker_id and self.state.speaker_mapping.get(other,other)==cleaned:
+                return other
+        return None
 
     def annotate_segment(self,index:int,note:str)->bool:
         """Attach or clear a researcher's note on one turn. True when it changed.
@@ -129,14 +152,22 @@ class AppController:
         """
         if not (0<=index<len(self.state.transcript_segments)): return False
         note=(note or "").strip()
-        if self.state.transcript_segments[index].note==note: return False
-        self.state.transcript_segments[index].note=note
+        segment=self.state.transcript_segments[index]
+        if segment.note==note: return False
+        before=segment.note
+        self.state.history.record(s.UNDO_NOTE.format(index=index+1),
+                                  lambda item=segment,value=before:setattr(item,"note",value))
+        segment.note=note
         self.state.dirty=True
         return True
 
     def correct_segment(self,index:int,text:str|None)->None:
         segment=self.state.transcript_segments[index]
         before=segment.text
+        was_corrected,was_marked=segment.corrected_text,list(segment.annotations)
+        def restore(item=segment,corrected=was_corrected,marks=was_marked)->None:
+            item.corrected_text=corrected; item.annotations=marks
+        self.state.history.record(s.UNDO_CORRECTION.format(index=index+1),restore)
         segment.corrected_text=text if text and text!=segment.original_text else None
         # Character offsets stop pointing at the same words the moment a word is inserted
         # before them, so every mark is re-found by the phrase it was placed on. One whose
@@ -152,8 +183,11 @@ class AppController:
         """Bold, highlight, or comment on a range of the turn's text. False if it is empty."""
         if not (0<=index<len(self.state.transcript_segments)): return False
         segment=self.state.transcript_segments[index]
+        was_marked=list(segment.annotations)
         marks=an.add(segment.annotations,start,end,segment.text,kind,slot,note)
         if marks==segment.annotations: return False
+        self.state.history.record(s.UNDO_MARK.format(index=index+1),
+            lambda item=segment,value=was_marked:setattr(item,"annotations",value))
         segment.annotations=marks; self.state.dirty=True
         return True
 
@@ -161,8 +195,11 @@ class AppController:
         """Take every mark off a range, whatever kind it is."""
         if not (0<=index<len(self.state.transcript_segments)): return False
         segment=self.state.transcript_segments[index]
+        was_marked=list(segment.annotations)
         marks=an.remove(segment.annotations,start,end,segment.text)
         if len(marks)==len(segment.annotations): return False
+        self.state.history.record(s.UNDO_MARK.format(index=index+1),
+            lambda item=segment,value=was_marked:setattr(item,"annotations",value))
         segment.annotations=marks; self.state.dirty=True
         return True
 
@@ -170,8 +207,11 @@ class AppController:
         """Remove one particular mark, the one the researcher pointed at."""
         if not (0<=index<len(self.state.transcript_segments)): return False
         segment=self.state.transcript_segments[index]
+        was_marked=list(segment.annotations)
         remaining=[m for m in segment.annotations if m is not mark]
         if len(remaining)==len(segment.annotations): return False
+        self.state.history.record(s.UNDO_MARK.format(index=index+1),
+            lambda item=segment,value=was_marked:setattr(item,"annotations",value))
         segment.annotations=remaining; self.state.dirty=True
         return True
 
@@ -185,6 +225,8 @@ class AppController:
         if not (0<=index<len(self.state.transcript_segments)): return False
         segment=self.state.transcript_segments[index]
         if not speaker_id or segment.speaker_id==speaker_id: return False
+        self.state.history.record(s.UNDO_REASSIGN.format(index=index+1),
+            lambda item=segment,value=segment.speaker_id:setattr(item,"speaker_id",value))
         segment.speaker_id=speaker_id; self.state.dirty=True
         return True
 
@@ -195,12 +237,22 @@ class AppController:
         the exports agree that there is now one person where there were two.
         """
         if not source or not target or source==target: return 0
-        moved=0
-        for segment in self.state.transcript_segments:
-            if segment.speaker_id==source:
-                segment.speaker_id=target; moved+=1
-        self.state.speaker_mapping.pop(source,None)
-        if moved: self.state.dirty=True
+        mapping=self.state.speaker_mapping
+        was_named=mapping.get(source)
+        touched=[segment for segment in self.state.transcript_segments
+                 if segment.speaker_id==source]
+        for segment in touched:
+            segment.speaker_id=target
+        mapping.pop(source,None)
+        moved=len(touched)
+        if not moved: return 0
+        def restore(items=touched,key=source,name=was_named)->None:
+            for item in items: item.speaker_id=key
+            if name is not None: mapping[key]=name
+        self.state.history.record(
+            s.UNDO_MERGE.format(source=was_named or source,
+                                target=mapping.get(target,target)),restore)
+        self.state.dirty=True
         return moved
 
     # ── Find and replace ─────────────────────────────────────────────────
@@ -333,4 +385,7 @@ class AppController:
         if isinstance(stored_reviewer,str) and stored_reviewer.strip():
             self.state.settings.reviewer=stored_reviewer.strip()
         self.state.current_workflow_step=max(2,int(data.get("workflow_step",2))) if segments else 0
+        # Every recorded step closes over segments from the project that was open before.
+        # Restoring one into this transcript would put a value where it never belonged.
+        self.state.history.clear()
         self.state.project_path=path; self.state.dirty=False

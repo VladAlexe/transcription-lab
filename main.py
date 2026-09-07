@@ -12,6 +12,7 @@ from app_controller import AppController
 from app_state import ExportMetadata
 import layout_audit
 from components.app_shell import Layout,app_shell,measure
+from components import brand
 from components.buttons import primary_button,tertiary_button
 from components.audio_transport import audio_transport
 from components.transcript_list import carries_marks,paint_turn,row_state
@@ -85,16 +86,49 @@ class DesktopApp:
             settings.highlight_labels=[str(name)[:40] for name in (stored+["","",""])[:3]]
         settings.reviewer=str(self.preferences.get("reviewer","") or "")[:80]
         self.apply_rewind()
+        # Everything above is reading a small JSON file. What follows is not: resolving the
+        # media tools runs ffmpeg and ffprobe and waits for them, and on a cold start that is
+        # seconds of a black window that looks like a hang. So the window is configured and
+        # something is put on it first, and the slow part happens with the splash visible.
+        self.configure_page()
+        self.show_starting(s.STARTING_TOOLS)
         self.controller.state.media_tools=resolve_media_tools([self.controller.state.settings.user_media_tool_path])
         query=parse_qs(urlparse(page.route).query);query_screen=query.get("screen",[""])[0]
         if query.get("dark",[""])[0]=="1":self.controller.state.settings.appearance="dark"
         self._configure_visual_demo(os.environ.get("TRANSCRIBER_DEMO_SCREEN","") or os.environ.get("TRANSCRIERE_DEMO_SCREEN","") or query_screen)
-        self.configure_page();self.render();self.fit_restore_size()
+        self.render();self.fit_restore_size()
         # Cosmetic and guarded: `flet run` uses a prebuilt client, so the taskbar shows that
         # executable's icon until ours is attached to the live window handle.
         window_icon.apply_in_background(s.APP_NAME,Path(__file__).resolve().parent/"assets"/"icon.ico",
             lambda message:print(message,flush=True))
         if not self.controller.state.media_tools.is_valid:self.show_missing_tools()
+
+    def show_starting(self,message:str)->None:
+        """Put the mark and a turning ring on the window before anything slow happens.
+
+        The first launch spends its time in two places the application cannot speed up —
+        the client opening and FFmpeg being probed — and until now both were spent behind a
+        black rectangle. A window that says what it is doing is not faster, but it is the
+        difference between waiting and wondering whether it has crashed.
+        """
+        try:
+            self.page.controls.clear()
+            self.page.add(ft.Container(ft.Column([
+                    brand.mark(t.MARK_HERO),
+                    ft.Text(s.APP_NAME,size=t.TYPE_TITLE,weight=ft.FontWeight.W_600,
+                        color=t.on_surface()),
+                    ft.Container(height=t.S8),
+                    ft.ProgressRing(width=22,height=22,stroke_width=3,color=t.primary(),
+                        bgcolor=t.outline()),
+                    ft.Text(message,size=t.TYPE_LABEL,color=t.muted())],
+                    spacing=t.S12,tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    alignment=ft.MainAxisAlignment.CENTER),
+                expand=True,bgcolor=t.background(),alignment=ft.Alignment.CENTER))
+            self.page.update()
+        except Exception as exc:
+            # A splash that fails must not be the reason the application does not start.
+            print(f"[startup] splash skipped: {exc}",flush=True)
 
     def _configure_visual_demo(self,screen:str)->None:
         """Populate deterministic UI states used only by screenshot quality checks."""
@@ -521,8 +555,11 @@ class DesktopApp:
         """Mark one turn reviewed, keeping any edit in the box, and write the project back."""
         segments=self.controller.state.transcript_segments
         self.commit_correction(index)
+        was=segments[index].checked if 0<=index<len(segments) else None
         if not review_progress.set_checked(segments,index,value):
             self.autosave();return
+        self.controller.state.history.record(s.UNDO_CHECKED.format(index=index+1),
+            lambda item=segments[index],flag=was:setattr(item,"checked",flag))
         self.controller.state.last_reviewed_index=index
         self.controller.state.dirty=True
         parts=(self.refs.get("rows") or {}).get(index)
@@ -573,7 +610,10 @@ class DesktopApp:
             if first is not None: self.select_segment(first)
             return
         # set_checked commits the box, so the sentence being typed is never lost here.
-        self.set_checked(index,True)
+        # Saving the correction and ticking the turn are two changes and one act: grouped,
+        # they come back together rather than leaving the transcript half restored.
+        with state.history.group(s.UNDO_REVIEWED.format(index=index+1)):
+            self.set_checked(index,True)
         following=review_progress.next_unchecked(state.transcript_segments,index)
         if following is None:
             notification(self.page,s.REVIEW_DONE);return
@@ -626,6 +666,21 @@ class DesktopApp:
         self.controller.correct_segment(index,text)
         self._safe_update(field)
         self._refresh_row_text(index)
+
+    def undo(self)->None:
+        """Put the last change back, and say which one it was.
+
+        Everything on this screen writes straight through to the transcript, so the only
+        honest safety net is being able to step back — including out of a Ctrl+Enter that
+        saved a sentence over one worth keeping.
+        """
+        what=self.controller.state.history.undo()
+        if what is None:
+            notification(self.page,s.UNDO_NOTHING);return
+        self.controller.state.dirty=True
+        self.render()
+        notification(self.page,s.UNDO_DONE.format(what=what))
+        self.autosave()
 
     def set_typing(self,active:bool)->None:
         """A text field took or lost focus. Space belongs to the text while it is typing."""
@@ -699,6 +754,12 @@ class DesktopApp:
                 return
             if key in self.ENTER_KEYS:
                 if reviewing: self.mark_and_advance()
+                return
+            # The one Ctrl shortcut that yields to a focused field. Inside a text box Ctrl+Z
+            # is the box's own undo, and taking it would step back over a whole correction
+            # when the researcher only meant to take back a keystroke.
+            if key.lower()=="z" and not bool(getattr(event,"shift",False)):
+                if not self.typing: self.undo()
                 return
             letter=key.lower()
             if letter=="s":
@@ -915,7 +976,7 @@ class DesktopApp:
             self.minimize_window,self.toggle_maximize,self.close_window,
             bool(self.page.window.maximized),self.save_project,
             Path(self.save_target()).name if self.save_target() else "",self.save_project_as,
-            layout.nav)
+            layout.nav,self.undo,state.history.pending or "")
         # Proof, printed rather than eyeballed: no declared child width exceeds the column.
         print(layout_audit.report(self.screen_name(),layout.content,workspace),flush=True)
         # The transport belongs to the review screen only, and sits below it as a footer.
@@ -982,6 +1043,20 @@ class DesktopApp:
         status.value=save_status(dirty,Path(target).name if target else "")
         status.color=t.warning() if dirty else t.on_surface_variant()
         self._safe_update(status)
+        self._refresh_undo()
+
+    def _refresh_undo(self)->None:
+        """Keep the Undo button in step between full renders.
+
+        Most corrections update a row or the panel in place rather than rebuilding the
+        chrome, so without this the button would still be greyed out immediately after the
+        first change of a session — the one moment it is most needed."""
+        button=self.refs.get("undo_button")
+        if button is None: return
+        pending=self.controller.state.history.pending or ""
+        button.disabled=not pending
+        button.tooltip=s.UNDO_TOOLTIP.format(what=pending) if pending else s.UNDO_EMPTY
+        self._safe_update(button)
 
     def visible_rows(self)->list[tuple[int,dict]]:
         """The turn rows currently on screen, as (transcript index, controls).
@@ -1131,7 +1206,13 @@ class DesktopApp:
 
     # ── Speakers ─────────────────────────────────────────────────────────────
     def map_speaker(self,speaker:str,name:str)->None:
+        # Two speakers under one name is nearly always a slip, and it makes every later
+        # reading of the transcript ambiguous. It is not refused — it can be a step towards
+        # merging them — but it is said out loud instead of accepted in silence.
+        clash=self.controller.duplicate_name(speaker,name)
         self.controller.map_speaker(speaker,name);self._refresh_speaker(speaker)
+        if clash is not None:
+            notification(self.page,s.DUPLICATE_NAME.format(name=name.strip()))
     def reassign_turn(self,index:int,speaker_id:str)->None:
         """Move one turn to another speaker, straight from the inspector row."""
         if not self.controller.reassign_turn(index,speaker_id): return

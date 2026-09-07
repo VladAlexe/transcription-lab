@@ -526,3 +526,25 @@ LANGUAGES = (("ro", "Romanian"), ("en", "English"), ("nl", "Dutch"), ("fr", "Fre
 def language_name(code: str) -> str:
     """The label shown for a language code, or the code itself if it is not one of ours."""
     return dict(LANGUAGES).get(code, code or "—")
+
+
+# --- Undo ---------------------------------------------------------------------------------
+# Each names the act the way the person doing it would, so the toast reads as a sentence:
+# "Undone: renaming Speaker 1".
+UNDO = "Undo"
+UNDO_TOOLTIP = "Undo {what} (Ctrl+Z)"
+UNDO_EMPTY = "Nothing to undo yet"
+UNDO_DONE = "Undone: {what}"
+UNDO_NOTHING = "There is nothing to undo."
+UNDO_RENAME = "renaming {speaker}"
+UNDO_MERGE = "merging {source} into {target}"
+UNDO_CORRECTION = "the correction on turn {index}"
+UNDO_REASSIGN = "moving turn {index} to another speaker"
+UNDO_MARK = "the marking on turn {index}"
+UNDO_NOTE = "the comment on turn {index}"
+UNDO_CHECKED = "checking turn {index}"
+UNDO_REVIEWED = "reviewing turn {index}"
+DUPLICATE_NAME = ("{name} is already the name of another speaker. If they are the same "
+                  "person, merge them instead — the menu beside the name does it.")
+
+STARTING_TOOLS = "Looking for FFmpeg…"

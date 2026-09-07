@@ -2,6 +2,7 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass, field
 from models import AudioChunk, AudioInfo, MediaToolPaths, TranscriptSegment
+from undo import History
 from providers import DEFAULT_PROVIDER, ProviderCapabilities, provider_capabilities
 
 # One key per provider; every one of them lives only in the memory of this process.
@@ -68,6 +69,10 @@ class AppState:
     generated_chunks: list[AudioChunk] = field(default_factory=list)
     transcription_progress: float = 0.0
     transcript_segments: list[TranscriptSegment] = field(default_factory=list)
+    # How to put back each of the last corrections. It closes over the segments in the
+    # transcript above, so opening another project clears it rather than carrying steps
+    # that would restore a value into a document it never belonged to.
+    history: History = field(default_factory=History)
     chunk_metadata: list[dict] = field(default_factory=list)
     speaker_mapping: dict[str, str] = field(default_factory=dict)
     export_paths: dict[str, str] = field(default_factory=dict)

@@ -9,7 +9,7 @@ import flet as ft
 import design_tokens as t
 import strings as s
 from app_state import AppState
-from components.buttons import secondary_button
+from components.buttons import icon_button,secondary_button
 
 WINDOW_BUTTON_WIDTH=46
 
@@ -61,7 +61,8 @@ def top_bar(state:AppState,on_settings:Callable[[],None],on_theme:Callable[[],No
             on_maximize:Callable[[],None]|None=None,on_close:Callable[[],None]|None=None,
             maximized:bool=False,on_save:Callable[[],None]|None=None,
             save_target:str="",on_save_as:Callable[[],None]|None=None,
-            lead_offset:float=0.0)->ft.Control:
+            lead_offset:float=0.0,on_undo:Callable[[],None]|None=None,
+            undoable:str="")->ft.Control:
     filename=state.selected_file_metadata.filename if state.selected_file_metadata else s.UNTITLED_PROJECT
     # Where Ctrl+S will actually write, said on screen rather than in the Save button's
     # tooltip. The terse Saved / Unsaved dot lives in the status band along the bottom;
@@ -115,7 +116,15 @@ def top_bar(state:AppState,on_settings:Callable[[],None],on_theme:Callable[[],No
     # The API key chip is gone from here. The status band along the bottom carries the key,
     # the provider and the language at all times and leads to Settings when clicked, so a
     # second badge in the title bar was the same sentence twice on every screen.
-    lead:list[ft.Control]=[save,save_as,ft.Container(width=t.S16)]
+    # Undo sits beside Save because they are the same subject: what is in the project. It
+    # is on every screen, not only the review one, because a rename made on one screen is
+    # regretted on another — and it names what it would take back rather than saying "Undo".
+    undo=icon_button(ft.Icons.UNDO,
+        s.UNDO_TOOLTIP.format(what=undoable) if undoable else s.UNDO_EMPTY,
+        (lambda e:on_undo()) if (on_undo and undoable) else None,
+        size=19,disabled=not (on_undo and undoable))
+    if refs is not None: refs["undo_button"]=undo
+    lead:list[ft.Control]=[undo,ft.Container(width=t.S8),save,save_as,ft.Container(width=t.S16)]
     right=ft.Row([*lead,icons],spacing=0,
         vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
