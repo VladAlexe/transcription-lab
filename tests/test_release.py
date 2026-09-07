@@ -167,6 +167,62 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("LICENSE-FFMPEG.txt", self.script)
         self.assertIn(r"build\windows", self.script)
 
+    def test_it_bundles_the_visual_cpp_runtime_with_the_application(self) -> None:
+        """Windows ships the UCRT; it does not ship the Visual C++ runtime.
+
+        The Flutter runner links msvcp140.dll dynamically and the embedded interpreter
+        imports VCRUNTIME140.dll, so on a machine that has never installed the
+        redistributable the application does not start — it shows a dialog naming a DLL.
+        Windows resolves a process's imports from the executable's directory first, which is
+        why copying them there is enough and why no installer is needed.
+        """
+        step = [s for s in self.steps if s.get("name") == "Bundle Microsoft Visual C++ runtime"]
+        self.assertEqual(len(step), 1)
+        script = str(step[0]["run"])
+        for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
+            with self.subTest(dll=dll):
+                self.assertIn(dll, script)
+
+    def test_the_runtime_is_bundled_after_the_build_and_before_the_archive(self) -> None:
+        names = [step.get("name", "") for step in self.steps]
+        bundle = names.index("Bundle Microsoft Visual C++ runtime")
+        self.assertLess(names.index("Build Windows application"), bundle)
+        self.assertLess(bundle, names.index("Verify the distribution"))
+        self.assertLess(bundle, names.index("Archive distribution"))
+
+    def test_it_takes_the_runtime_from_the_sdk_rather_than_from_system32(self) -> None:
+        """System32 holds whatever happens to be installed on the runner. The redist folder
+        is the copy Microsoft ships to be redistributed, and it is what gets looked at
+        first; System32 is a fallback for a runner that has no Visual Studio at all."""
+        script = str([s for s in self.steps
+                      if s.get("name") == "Bundle Microsoft Visual C++ runtime"][0]["run"])
+        self.assertIn(r"VC\Redist\MSVC", script)
+        self.assertIn("Microsoft.VC*.CRT", script)
+        self.assertLess(script.index("Redist"), script.index("System32"),
+                        "the redistributable directory has to be preferred")
+
+    def test_a_missing_runtime_stops_the_release_rather_than_shipping(self) -> None:
+        script = str([s for s in self.steps
+                      if s.get("name") == "Bundle Microsoft Visual C++ runtime"][0]["run"])
+        self.assertIn("throw", script)
+        self.assertIn("$missing", script)
+
+    def test_it_says_where_each_library_came_from_and_where_it_went(self) -> None:
+        """A build log that only says "done" cannot be checked afterwards."""
+        script = str([s for s in self.steps
+                      if s.get("name") == "Bundle Microsoft Visual C++ runtime"][0]["run"])
+        self.assertIn("from:", script)
+        self.assertIn("to:", script)
+
+    def test_the_distribution_check_confirms_the_runtime_landed_beside_the_exe(self) -> None:
+        verify = str([s for s in self.steps
+                      if s.get("name") == "Verify the distribution"][0]["run"])
+        for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
+            with self.subTest(dll=dll):
+                self.assertIn(dll, verify)
+        self.assertIn("exe.Directory.FullName", verify,
+                      "beside the executable, not merely somewhere in the distribution")
+
     def test_it_fetches_ffmpeg_instead_of_cloning_it(self) -> None:
         """The binaries are not in the repository, so the build has to go and get them."""
         self.assertIn("python tools_fetch_ffmpeg.py", self.script)

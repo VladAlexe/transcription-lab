@@ -1,13 +1,15 @@
 # TranscriptionLab
 
-*Version 1.2.1 · English interface, transcription in Romanian by default.*
+*Version 1.2.2 · English interface, transcription in Romanian by default.*
 
 ## Download
 
-- **Windows.** Download `TranscriptionLab-Windows-v1.2.1.zip` from the
+- **Windows.** Download `TranscriptionLab-Windows-v1.2.2.zip` from the
   [Releases page](../../releases/latest), unzip it anywhere and run
   `TranscriptionLab.exe`. There is no installer and no need for administrator rights.
-  FFmpeg is included in the archive; nothing has to be installed separately.
+  FFmpeg and the Microsoft Visual C++ runtime are both inside the archive, so nothing has
+  to be installed separately — not even the Visual C++ Redistributable that most Windows
+  applications ask for.
 - **The API key is yours to bring.** The application does not come with a transcription
   account. Choose your provider in **Settings** (Gladia, Soniox, Deepgram, OpenAI, or an
   OpenAI-compatible endpoint), then enter that provider's key on the **Transcription** step.
@@ -212,7 +214,7 @@ uses plugin symlinks. The release workflow runs on `windows-latest`, which has b
 
 ```powershell
 python tools_fetch_ffmpeg.py
-flet build windows --yes --project transcriptionlab --product "TranscriptionLab" --description "Transcribe and review long group interviews" --org org.transcriptionlab --company "TranscriptionLab" --build-version 1.2.1
+flet build windows --yes --project transcriptionlab --product "TranscriptionLab" --description "Transcribe and review long group interviews" --org org.transcriptionlab --company "TranscriptionLab" --build-version 1.2.2
 ```
 
 The distribution is created in `build\windows`. Flet packages the `assets` directory into the
@@ -247,8 +249,8 @@ anywhere in GitHub Actions.
 Tagging a release:
 
 ```powershell
-git tag -a v1.2.1 -m "TranscriptionLab 1.2.1"
-git push origin v1.2.1
+git tag -a v1.2.2 -m "TranscriptionLab 1.2.2"
+git push origin v1.2.2
 ```
 
 ## Troubleshooting

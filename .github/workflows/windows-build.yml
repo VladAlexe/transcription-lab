@@ -20,7 +20,7 @@ permissions:
 
 env:
   # Kept in step with document_export.APP_VERSION; the verify step below fails if they drift.
-  APP_VERSION: "1.2.1"
+  APP_VERSION: "1.2.2"
   # The FFmpeg version lives in tools_fetch_ffmpeg.py; a test keeps these two in step.
   FFMPEG_RELEASE: "8.1.2"
 
@@ -122,6 +122,88 @@ jobs:
             --copyright "TranscriptionLab" `
             --build-version $env:APP_VERSION
 
+      - name: Bundle Microsoft Visual C++ runtime
+        shell: pwsh
+        run: |
+          # Windows ships the UCRT (the api-ms-win-crt-* set) but NOT the Visual C++ runtime.
+          # The Flutter runner and its plugins are C++ and link msvcp140.dll dynamically, and
+          # the embedded interpreter imports VCRUNTIME140.dll — read straight off the import
+          # tables. On a machine that has never had the redistributable installed the
+          # application does not start, and says so with a dialog naming a DLL. Windows looks
+          # in the executable's own directory first, so the fix is to put them there and stop
+          # asking the researcher to install anything.
+          #
+          # Redistributing these files alongside an application is what the Visual Studio
+          # redistributable licence is for; they are taken from the SDK's own redist folder
+          # rather than scraped out of System32.
+          $ErrorActionPreference = 'Stop'
+          $exe = Get-ChildItem build\windows -Recurse -Filter *.exe |
+                 Where-Object { $_.Name -notin @('ffmpeg.exe','ffprobe.exe') } | Select-Object -First 1
+          if (-not $exe) { throw "No application executable was produced in build\windows" }
+          $target = $exe.Directory.FullName
+          Write-Host "Application executable: $($exe.FullName)"
+          Write-Host "Runtime destination:    $target"
+
+          # The MSVC redist directories, newest toolset first. Built by walking the known
+          # layout rather than recursing the whole Visual Studio tree, which takes minutes.
+          $roots = @("$env:ProgramFiles\Microsoft Visual Studio", "${env:ProgramFiles(x86)}\Microsoft Visual Studio")
+          $candidates = @()
+          foreach ($root in $roots) {
+            if (-not (Test-Path $root)) { continue }
+            foreach ($year in Get-ChildItem $root -Directory -ErrorAction SilentlyContinue) {
+              foreach ($edition in Get-ChildItem $year.FullName -Directory -ErrorAction SilentlyContinue) {
+                $redist = Join-Path $edition.FullName 'VC\Redist\MSVC'
+                if (-not (Test-Path $redist)) { continue }
+                foreach ($toolset in Get-ChildItem $redist -Directory -ErrorAction SilentlyContinue) {
+                  $x64 = Join-Path $toolset.FullName 'x64'
+                  if (-not (Test-Path $x64)) { continue }
+                  foreach ($crt in Get-ChildItem $x64 -Directory -Filter 'Microsoft.VC*.CRT' -ErrorAction SilentlyContinue) {
+                    $parsed = $null
+                    [void][version]::TryParse($toolset.Name, [ref]$parsed)
+                    $candidates += [pscustomobject]@{ Path = $crt.FullName; Version = $parsed }
+                  }
+                }
+              }
+            }
+          }
+          $sources = @($candidates | Sort-Object -Property Version -Descending | Select-Object -ExpandProperty Path)
+          foreach ($source in $sources) { Write-Host "MSVC redist found:      $source" }
+          if (-not $sources) {
+            # Only when the runner has no redist folder at all. The installed runtime in
+            # System32 is the same build of the same files, not an arbitrary location.
+            Write-Host "::warning::No MSVC redist directory on this runner; falling back to System32"
+            $sources = @("$env:SystemRoot\System32")
+          }
+
+          # The three the application cannot start without, and the rest of the same CRT set.
+          # msvcp140_1.dll in particular is pulled in by some Flutter plugins, and copying it
+          # costs nothing next to finding out from a user that it was missing.
+          $required = @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')
+          $optional = @('msvcp140_1.dll','msvcp140_2.dll','msvcp140_codecvt_ids.dll','concrt140.dll')
+          $missing = @()
+          foreach ($name in ($required + $optional)) {
+            $found = $null
+            foreach ($source in $sources) {
+              $candidate = Join-Path $source $name
+              if (Test-Path $candidate) { $found = $candidate; break }
+            }
+            if (-not $found) {
+              if ($required -contains $name) { $missing += $name }
+              else { Write-Host "Optional, not present:  $name" }
+              continue
+            }
+            Copy-Item -Path $found -Destination $target -Force
+            $landed = Join-Path $target $name
+            if (-not (Test-Path $landed)) { throw "$name could not be copied to $target" }
+            $size = "{0:N0}" -f (Get-Item $landed).Length
+            Write-Host "Bundled $name"
+            Write-Host "  from: $found"
+            Write-Host "  to:   $landed ($size bytes)"
+          }
+          if ($missing) {
+            throw "The Visual C++ runtime is incomplete: $($missing -join ', ') was not found under $($sources -join '; '). Without it the application will not start on a machine that has never installed the redistributable."
+          }
+
       - name: Verify the distribution
         shell: pwsh
         run: |
@@ -139,6 +221,16 @@ jobs:
           $ffmpeg = Get-ChildItem build\windows -Recurse -Filter ffmpeg.exe | Select-Object -First 1
           if (-not $ffmpeg.FullName.StartsWith($exe.Directory.FullName)) {
             Write-Host "::warning::ffmpeg.exe sits outside the executable's own directory tree"
+          }
+          # The Visual C++ runtime, bundled by the step above. Windows resolves a process's
+          # imports from the executable's own directory first, so these have to sit beside
+          # the exe itself — not merely somewhere in the distribution.
+          foreach ($name in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+            $dll = Join-Path $exe.Directory.FullName $name
+            if (-not (Test-Path $dll)) {
+              throw "$name is not beside $($exe.Name); the application would need the Visual C++ Redistributable installed"
+            }
+            Write-Host "VC runtime: $dll ($("{0:N0}" -f (Get-Item $dll).Length) bytes)"
           }
           $size = "{0:N0}" -f ((Get-ChildItem build\windows -Recurse | Measure-Object Length -Sum).Sum / 1MB)
           Write-Host "Distribution size: $size MB"
