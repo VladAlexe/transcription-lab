@@ -20,7 +20,7 @@ permissions:
 
 env:
   # Kept in step with document_export.APP_VERSION; the verify step below fails if they drift.
-  APP_VERSION: "1.2.2"
+  APP_VERSION: "1.2.3"
   # The FFmpeg version lives in tools_fetch_ffmpeg.py; a test keeps these two in step.
   FFMPEG_RELEASE: "8.1.2"
 

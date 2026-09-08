@@ -1,10 +1,10 @@
 # TranscriptionLab
 
-*Version 1.2.2 · English interface, transcription in Romanian by default.*
+*Version 1.2.3 · English interface, transcription in Romanian by default.*
 
 ## Download
 
-- **Windows.** Download `TranscriptionLab-Windows-v1.2.2.zip` from the
+- **Windows.** Download `TranscriptionLab-Windows-v1.2.3.zip` from the
   [Releases page](../../releases/latest), unzip it anywhere and run
   `TranscriptionLab.exe`. There is no installer and no need for administrator rights.
   FFmpeg and the Microsoft Visual C++ runtime are both inside the archive, so nothing has
@@ -214,7 +214,7 @@ uses plugin symlinks. The release workflow runs on `windows-latest`, which has b
 
 ```powershell
 python tools_fetch_ffmpeg.py
-flet build windows --yes --project transcriptionlab --product "TranscriptionLab" --description "Transcribe and review long group interviews" --org org.transcriptionlab --company "TranscriptionLab" --build-version 1.2.2
+flet build windows --yes --project transcriptionlab --product "TranscriptionLab" --description "Transcribe and review long group interviews" --org org.transcriptionlab --company "TranscriptionLab" --build-version 1.2.3
 ```
 
 The distribution is created in `build\windows`. Flet packages the `assets` directory into the
@@ -249,8 +249,8 @@ anywhere in GitHub Actions.
 Tagging a release:
 
 ```powershell
-git tag -a v1.2.2 -m "TranscriptionLab 1.2.2"
-git push origin v1.2.2
+git tag -a v1.2.3 -m "TranscriptionLab 1.2.3"
+git push origin v1.2.3
 ```
 
 ## Troubleshooting
