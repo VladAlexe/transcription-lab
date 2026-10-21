@@ -18,7 +18,8 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
                     on_follow: Callable[[], None] | None = None,
                     following: bool = False,
                     on_continuous: Callable[[], None] | None = None,
-                    continuous: bool = True) -> ft.Control:
+                    continuous: bool = True,
+                    on_play: Callable[[], None] | None = None) -> ft.Control:
     """One 56px row: back, play/pause, forward, elapsed, thin scrubber, total, speed.
 
     The two skip buttons sit either side of play/pause, which is where a hand already
@@ -30,7 +31,7 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
 
     button = icon_button(ft.Icons.PAUSE if player.playing else ft.Icons.PLAY_ARROW,
                          s.PLAYER_PAUSE if player.playing else s.PLAYER_PLAY,
-                         lambda e: player.toggle(), size=20,
+                         lambda e: (on_play or player.toggle)(), size=20,
                          color=t.primary() if ready else t.muted(), disabled=not ready)
 
     def jump(delta: float, icon: ft.IconData, tooltip: str) -> ft.Control:
@@ -50,13 +51,13 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
                          color=t.primary() if following else t.on_surface_variant(),
                          disabled=on_follow is None)
 
-    # Straight through, or one turn at a time: checking turn by turn wants the audio to stop
-    # where the turn does, so the next press of play is the next turn.
-    through = icon_button(ft.Icons.PLAYLIST_PLAY if continuous else ft.Icons.STOP_CIRCLE_OUTLINED,
-                          s.CONTINUOUS_ON if continuous else s.CONTINUOUS_OFF,
-                          (lambda e: on_continuous()) if on_continuous else None, size=18,
-                          color=t.on_surface_variant() if continuous else t.primary(),
-                          disabled=on_continuous is None)
+    # One turn at a time, named in words: two icon buttons side by side (this and follow)
+    # read as the same thing twice. Following only means something while playback runs on,
+    # so in turn-by-turn it is not shown at all.
+    through = ft.Container(padding=ft.Padding(t.S8, 4, t.S8, 4), border_radius=t.R_SM,
+                           ink=True, on_click=(lambda e: on_continuous()) if on_continuous else None)
+    turn_mode_look(through, not continuous)
+    follow.visible = continuous
 
     scrubber = ft.Slider(min=0, max=float(total or 1), value=float(position),
                          disabled=not ready or not total, expand=True,
@@ -94,6 +95,19 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
         # and the title bar now carry. An editor rules its panel edges; tone alone left them
         # soft enough that the bar looked like part of the list it sits under.
         border=ft.Border(top=ft.BorderSide(t.HAIRLINE,t.outline())))
+
+
+def turn_mode_look(chip: ft.Container, on: bool) -> None:
+    """Paint the turn-by-turn switch for its state; shared with the in-place update."""
+    colour = t.primary() if on else t.on_surface_variant()
+    chip.content = ft.Row([ft.Icon(ft.Icons.TOGGLE_ON if on else ft.Icons.TOGGLE_OFF, size=18,
+                                   color=colour),
+                           ft.Text(s.TURN_BY_TURN, size=t.TYPE_CAPTION, color=colour,
+                                   weight=ft.FontWeight.W_600 if on else ft.FontWeight.W_400,
+                                   no_wrap=True)],
+                          spacing=4, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    chip.bgcolor = t.primary_soft() if on else None
+    chip.tooltip = s.TURN_BY_TURN_ON if on else s.TURN_BY_TURN_OFF
 
 
 def audio_missing_banner(on_locate: Callable[[], None], on_dismiss: Callable[[], None]) -> ft.Control:

@@ -13,7 +13,7 @@ from app_state import DEFAULT_HIGHLIGHT_LABELS,ExportMetadata
 import layout_audit
 from components.app_shell import Layout,app_shell,measure
 from components.buttons import primary_button,tertiary_button
-from components.audio_transport import audio_transport
+from components.audio_transport import audio_transport,turn_mode_look
 from components.transcript_list import carries_marks,paint_turn,row_state
 import find_replace
 import playback_sync
@@ -51,10 +51,12 @@ class DesktopApp:
         self.words_mode=False;self.show_original=False;self.note_open=False
         # The open turn tracks the audio unless the researcher turns it off.
         self.follow_playback=True
-        # Straight through, or stop where each turn ends. `_stopped_turn` is the turn it last
-        # stopped at, so pressing play again carries on instead of stopping on the spot.
+        # Straight through, or turn by turn: Play plays the open turn and stops at its end.
         self.continuous_play=bool(self.preferences.get("continuous_play",True))
-        self._stopped_turn:int|None=None
+        # When this application last put the playhead at a turn's start. Position reports
+        # already in flight can still carry the old, later position; for a moment after the
+        # seek they are not allowed to count as "past the end".
+        self._turn_started_at=0.0
         # Marking a turn writes the project back, throttled so holding Ctrl+Enter down
         # cannot turn a 3 MB write into a stutter on every turn.
         self._last_autosave=0.0;self._autosave_pending=False;self._save_lock=threading.Lock()
@@ -292,7 +294,7 @@ class DesktopApp:
         state=self.controller.state
         if state.current_workflow_step!=2 or self.show_settings or self.show_home: return
         found=playback_sync.locate(state.transcript_segments,position_ms/1000.0)
-        self._stop_at_turn_end(found,position_ms)
+        self._stop_at_turn_end(position_ms)
         if found==self.active: return
         previous,self.active=self.active,found
         rows=self.refs.get("rows") or {}
@@ -309,7 +311,8 @@ class DesktopApp:
         # was not, so the text under the caret kept sliding away mid-sentence.
         if self.typing: return
         self.scroll_to_turn(found.turn)
-        if self.follow_playback and found.turn is not None:
+        # Turn by turn, the open turn is the one being played; nothing should move it.
+        if self.follow_playback and self.continuous_play and found.turn is not None:
             self.follow_to(found.turn)
 
     def follow_to(self,index:int)->None:
@@ -334,32 +337,53 @@ class DesktopApp:
             touched.append(host)
         if not self._safe_update(*touched): self.render()
 
-    def _stop_at_turn_end(self,found:playback_sync.Position,position_ms:int)->None:
-        """One turn at a time: pause where the playing turn ends.
+    TURN_START_GRACE = 0.8
 
-        Also when playback crosses into the next turn without reaching the end of this one,
-        which is what overlapping turns do. The turn stopped at is remembered so that play
-        carries on into the next turn rather than stopping again where it stands.
+    def open_turn(self):
+        """The open turn's segment, or None."""
+        segments=self.controller.state.transcript_segments;index=self.selected_segment
+        return segments[index] if index is not None and 0<=index<len(segments) else None
+
+    def _stop_at_turn_end(self,position_ms:int)->None:
+        """Turn by turn: pause where the open turn ends.
+
+        The open turn, not whichever turn happens to be sounding — so overlapping speech or
+        a gap between turns cannot make it stop early, late, or in the wrong place.
         """
-        if self.continuous_play or not self.player.playing or found.turn is None: return
-        segments=self.controller.state.transcript_segments
-        if found.turn>=len(segments): return
-        ended=found.turn!=self._stopped_turn and position_ms/1000.0>=segments[found.turn].absolute_end
-        crossed=(self.active.turn is not None and found.turn>self.active.turn
-                 and self.active.turn!=self._stopped_turn)
-        if not (ended or crossed): return
-        self._stopped_turn=found.turn if ended else self.active.turn
-        self.player.toggle()
+        if self.continuous_play or not self.player.playing: return
+        turn=self.open_turn()
+        if turn is None: return
+        if time.monotonic()-self._turn_started_at<self.TURN_START_GRACE: return
+        if position_ms/1000.0>=turn.absolute_end: self.player.toggle()
+
+    def play_pause(self)->None:
+        """Play and pause, from the button, Ctrl+W, F4 and Space alike.
+
+        Turn by turn, Play means "play this turn": from its start whenever the playhead is
+        not already inside it — which includes having just stopped at its end — so a second
+        Play hears the turn again instead of running on into the next one.
+        """
+        turn=self.open_turn()
+        if self.continuous_play or self.player.playing or turn is None or not self.player.ready:
+            self.player.toggle();return
+        here=self.player.position_ms/1000.0
+        if here<turn.absolute_start-.05 or here>=turn.absolute_end-.05:
+            self.play_from(turn.absolute_start)
+        else: self.player.toggle()
+
+    def play_from(self,seconds:float)->None:
+        """Seek and play; the moment is remembered so stale positions cannot stop it."""
+        self._turn_started_at=time.monotonic()
+        self.player.seek(seconds)
 
     def toggle_continuous(self)->None:
-        self.continuous_play=not self.continuous_play;self._stopped_turn=None
+        self.continuous_play=not self.continuous_play
         self.preferences["continuous_play"]=self.continuous_play;save_preferences(self.preferences)
-        button=self.refs.get("player_continuous")
-        if button is None: self.render();return
-        button.icon=ft.Icons.PLAYLIST_PLAY if self.continuous_play else ft.Icons.STOP_CIRCLE_OUTLINED
-        button.tooltip=s.CONTINUOUS_ON if self.continuous_play else s.CONTINUOUS_OFF
-        button.icon_color=t.on_surface_variant() if self.continuous_play else t.primary()
-        if not self._safe_update(button): self.render()
+        chip=self.refs.get("player_continuous");follow=self.refs.get("player_follow")
+        if chip is None: self.render();return
+        turn_mode_look(chip,not self.continuous_play)
+        if follow is not None: follow.visible=self.continuous_play
+        if not self._safe_update(chip,follow): self.render()
 
     def toggle_follow(self)->None:
         self.follow_playback=not self.follow_playback
@@ -829,7 +853,7 @@ class DesktopApp:
 
         # Before anything else, and outside every guard: one key, one effect, no context.
         if key in self.PLAY_KEYS or (ctrl and key.lower() in self.PLAY_LETTERS):
-            self.player.toggle();return
+            self.play_pause();return
 
         if key in ("Escape","Esc"):
             if self.find_open: self.close_find()
@@ -889,7 +913,7 @@ class DesktopApp:
         # Space is deliberately NOT offered with Ctrl: Flet cannot consume a key, so the
         # field receives it too and a space lands in the sentence. Ctrl+W is the pause key.
         if self.typing or not reviewing: return
-        if key in (" ","Space"): self.player.toggle()
+        if key in (" ","Space"): self.play_pause()
         elif key in self.LEFT_KEYS: self.skip_audio(-float(t.SKIP_SECONDS))
         elif key in self.RIGHT_KEYS: self.skip_audio(float(t.SKIP_SECONDS))
         elif key in self.UP_KEYS: self.step_turn(-1)
@@ -925,7 +949,7 @@ class DesktopApp:
 
     def skip_audio(self,delta_seconds:float)->None:
         """Ten seconds back is the single most used control when checking a word."""
-        self._stopped_turn=None
+        self._turn_started_at=time.monotonic()
         self.player.skip(delta_seconds)
 
     def step_turn(self,delta:int)->None:
@@ -939,7 +963,7 @@ class DesktopApp:
         self.reveal_turn(target)
 
     def seek_to(self,seconds:float)->None:
-        self._stopped_turn=None
+        self._turn_started_at=time.monotonic()
         self.player.seek(seconds)
 
     def refresh_transport(self)->None:
@@ -1075,7 +1099,7 @@ class DesktopApp:
         # The transport belongs to the review screen only, and sits below it as a footer.
         footer=audio_transport(self.player,self.refs,self.set_speed,self.skip_audio,
             self.toggle_follow,self.follow_playback,self.toggle_continuous,
-            self.continuous_play) if fills else None
+            self.continuous_play,self.play_pause) if fills else None
         floating=self.overlays(layout) if fills else []
         # Whatever cannot take a column floats, on its own solid surface with its own way
         # out — and `pane_placement` has already guaranteed that at most one of them does,
@@ -1426,7 +1450,7 @@ class DesktopApp:
         segments=self.controller.state.transcript_segments
         # Clicking a turn positions the player on its exact start.
         if self.player.ready and index<len(segments):
-            self._stopped_turn=None;self.player.seek(segments[index].absolute_start)
+            self.play_from(segments[index].absolute_start)
         # Opening the sheet takes width away from the body, so that transition rebuilds.
         layout=self.refs.get("layout")
         if layout is not None and not layout.docked_inspector and previous is None:
@@ -1469,8 +1493,7 @@ class DesktopApp:
         if index>=len(segments): return
         if not self.player.ready:
             error_notification(self.page,s.AUDIO_MISSING_TITLE);return
-        self._stopped_turn=None
-        self.player.seek(segments[index].absolute_start)
+        self.play_from(segments[index].absolute_start)
 
     # ── Export and projects ──────────────────────────────────────────────────
     def set_export_metadata(self,title:str,project:str,date:str,notes:str,timestamps:bool,notice:bool,labels:bool)->None:

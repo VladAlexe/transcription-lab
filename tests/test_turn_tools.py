@@ -38,40 +38,57 @@ class DeleteTests(unittest.TestCase):
         self.assertEqual(len(controller.state.transcript_segments), 6)
 
 
-class StopAtTurnEndTests(unittest.TestCase):
-    """Turn i runs from 10i to 10i+8 seconds in the fixture."""
+class TurnByTurnTests(unittest.TestCase):
+    """Turn i runs from 10i to 10i+8 seconds in the fixture; turn 1 is open."""
 
-    def app(self, continuous: bool = False):
+    def app(self, continuous: bool = False, position_ms: int = 0, playing: bool = False):
         import main
-        toggles: list[bool] = []
-        player = SimpleNamespace(playing=True)
-        player.toggle = lambda: (toggles.append(True), setattr(player, "playing", False))
+        calls: list[str] = []
+        player = SimpleNamespace(playing=playing, position_ms=position_ms, ready=True)
+        player.toggle = lambda: (calls.append("toggle"), setattr(player, "playing", not player.playing))
+        player.seek = lambda seconds, play=True: (calls.append(f"seek {seconds:g}"),
+                                                  setattr(player, "playing", True))
         app = SimpleNamespace(controller=AppController(state()), continuous_play=continuous,
-                              _stopped_turn=None, player=player,
-                              active=playback_sync.Position(0))
-        app.check = lambda ms: main.DesktopApp._stop_at_turn_end(
-            app, playback_sync.locate(app.controller.state.transcript_segments, ms / 1000), ms)
-        return app, toggles
+                              selected_segment=1, player=player, _turn_started_at=0.0,
+                              TURN_START_GRACE=main.DesktopApp.TURN_START_GRACE)
+        for name in ("open_turn", "_stop_at_turn_end", "play_pause", "play_from"):
+            setattr(app, name, getattr(main.DesktopApp, name).__get__(app))
+        return app, calls
 
-    def test_it_pauses_where_the_turn_ends(self) -> None:
-        app, toggles = self.app()
-        app.check(7000)
-        self.assertEqual(toggles, [])
-        app.check(8100)
-        self.assertEqual(toggles, [True])
-        self.assertEqual(app._stopped_turn, 0)
+    def test_it_stops_where_the_open_turn_ends(self) -> None:
+        app, calls = self.app(playing=True)
+        app._stop_at_turn_end(17000)
+        self.assertEqual(calls, [])
+        app._stop_at_turn_end(18100)
+        self.assertEqual(calls, ["toggle"])
 
-    def test_play_again_carries_on_into_the_next_turn(self) -> None:
-        app, toggles = self.app()
-        app.check(8100)
-        app.player.playing = True
-        app.check(8300)                       # still past turn 0's end: no second stop
-        self.assertEqual(toggles, [True])
+    def test_play_after_the_end_starts_the_turn_over(self) -> None:
+        app, calls = self.app(position_ms=18100)
+        app.play_pause()
+        self.assertEqual(calls, ["seek 10"])
 
-    def test_straight_through_never_stops(self) -> None:
-        app, toggles = self.app(continuous=True)
-        app.check(8100)
-        self.assertEqual(toggles, [])
+    def test_play_from_elsewhere_starts_the_open_turn(self) -> None:
+        app, calls = self.app(position_ms=42000)
+        app.play_pause()
+        self.assertEqual(calls, ["seek 10"])
+
+    def test_play_inside_the_turn_resumes_where_it_was(self) -> None:
+        app, calls = self.app(position_ms=13000)
+        app.play_pause()
+        self.assertEqual(calls, ["toggle"])
+
+    def test_a_stale_position_right_after_starting_cannot_stop_it(self) -> None:
+        app, calls = self.app(position_ms=18100)
+        app.play_pause()                       # seeks to 10 s and plays
+        app._stop_at_turn_end(18100)           # a report still in flight from before the seek
+        self.assertEqual(calls, ["seek 10"])
+
+    def test_straight_through_never_stops_and_play_just_toggles(self) -> None:
+        app, calls = self.app(continuous=True, position_ms=18100, playing=True)
+        app._stop_at_turn_end(18100)
+        self.assertEqual(calls, [])
+        app.play_pause()
+        self.assertEqual(calls, ["toggle"])
 
 
 class UnclearTests(unittest.TestCase):

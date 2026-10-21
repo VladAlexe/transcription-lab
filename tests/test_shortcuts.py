@@ -240,7 +240,7 @@ class _Press:
             toggle_words_mode=record("toggle_words_mode"),
             skip_audio=record("skip_audio"),
             save_project_as=record("save_project_as"), toggle_note=record("toggle_note"),
-            player=SimpleNamespace(toggle=record("toggle")))
+            player=SimpleNamespace(toggle=record("toggle")), play_pause=record("toggle"))
         main.DesktopApp._route_key(stand_in, SimpleNamespace(key=key, ctrl=ctrl, shift=shift))
         return fired
 
@@ -324,7 +324,9 @@ class KeyRoutingTests(_Press, unittest.TestCase):
         # The body of the branch, not its condition: matching the key is not an effect.
         calls = {ast.unparse(node.func) for statement in play.body
                  for node in ast.walk(statement) if isinstance(node, ast.Call)}
-        self.assertEqual(calls, {"self.player.toggle"},
+        # `play_pause` only ever toggles the player or, turn by turn, seeks inside the open
+        # turn; it never scrolls or rebuilds anything.
+        self.assertEqual(calls, {"self.play_pause"},
                          f"play/pause must call nothing but the player, got {calls}")
 
     def test_save_writes_the_sentence_in_the_box_before_it_writes_the_file(self) -> None:

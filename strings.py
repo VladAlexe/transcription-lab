@@ -128,9 +128,8 @@ HELP_SHORTCUTS = ("Ctrl+S — save the correction you are typing, and the projec
                   "beside the open turn do the same.",
                   "Space and the plain arrows do the same, but only when no text field "
                   "has focus.",
-                  "Ctrl+P — play the open turn from its start. The button beside the "
-                  "crosshair in the player chooses whether playback runs on or stops at the "
-                  "end of each turn.",
+                  "Ctrl+P — play the open turn from its start. “Turn by turn” in the player "
+                  "makes every Play do that, and stop where the turn ends.",
                   "Ctrl+U — mark the selected words as unclear: a wavy underline on screen and "
                   "in Word, [unclear: …] in plain text.",
                   "Select a phrase, then: Ctrl+B bold, Ctrl+1 / Ctrl+2 / Ctrl+3 / Ctrl+4 highlight, "
@@ -279,8 +278,11 @@ PLAYER_BACK = "Back {seconds} seconds"
 PLAYER_FORWARD = "Forward {seconds} seconds"
 FOLLOW_ON = "Following the audio — the open turn moves with it"
 FOLLOW_OFF = "Follow the audio: keep the open turn on whatever is playing"
-CONTINUOUS_ON = "Playing straight through. Click to stop at the end of each turn"
-CONTINUOUS_OFF = "Stopping at the end of each turn. Click to play straight through"
+TURN_BY_TURN = "Turn by turn"
+TURN_BY_TURN_OFF = ("Off: playback runs straight on through the recording. Click to play one "
+                    "turn at a time")
+TURN_BY_TURN_ON = ("On: Play plays the open turn from its start and stops at its end; Play again "
+                   "starts it over. Ctrl+Enter, Ctrl+Down or the arrow goes to the next turn")
 
 # ── Review helpers ────────────────────────────────────────────────────────────
 FIND_REPLACE = "Find and replace"
