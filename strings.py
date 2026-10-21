@@ -119,7 +119,7 @@ def shortcuts(skip_seconds: int) -> tuple[str, ...]:
 HELP_SHORTCUTS = ("Ctrl+S — save the correction you are typing, and the project with it.",
                   "Ctrl+Shift+S — save to a different file. Ctrl+O — open one.",
                   "Ctrl+Enter — save the correction, mark the turn reviewed, open the next "
-                  "unchecked one.",
+                  "unchecked one. Plain Enter never adds a new line to a turn.",
                   "Ctrl+W — play or pause. It does nothing else, anywhere, ever.",
                   "F4 does the same, for a foot pedal mapped to a function key.",
                   "Ctrl+Left / Ctrl+Right — {seconds} seconds back or forward, anywhere.",
@@ -127,14 +127,13 @@ HELP_SHORTCUTS = ("Ctrl+S — save the correction you are typing, and the projec
                   "Space and the plain arrows do the same, but only when no text field "
                   "has focus.",
                   "Ctrl+P — play the open turn from its start.",
-                  "Select a phrase, then: Ctrl+B bold, Ctrl+1 / Ctrl+2 / Ctrl+3 highlight, "
+                  "Select a phrase, then: Ctrl+B bold, Ctrl+1 / Ctrl+2 / Ctrl+3 / Ctrl+4 highlight, "
                   "Ctrl+D comment on it, Ctrl+0 take the marks off.",
                   "Ctrl+M — add a comment on the whole turn, rather than on a phrase.",
                   "Ctrl+K — switch the open turn between editing and playing by word.",
                   "Ctrl+T — insert the current playback time into the text.",
                   "Ctrl+J — bring the list back to the turn you have open.",
-                  "Ctrl+E — show only the turns still unchecked. Ctrl+R — resume where you "
-                  "left off.",
+                  "Ctrl+R — resume where you left off.",
                   "Ctrl+F — find and replace. Esc closes it.",
                   "The open turn follows the audio; the crosshair in the player stops that.")
 HELP_UNDERSTOOD = "Got it"
@@ -380,6 +379,9 @@ BUSY_TITLE = "Processing in progress"
 BUSY_BODY = "Cancel the run and wait for the current request to finish."
 UNSAVED_TITLE = "Unsaved changes"
 UNSAVED_BODY = "The current project has unsaved changes. Continue anyway?"
+CLOSE_UNSAVED_BODY = ("This project has changes that are not in any file yet. Close anyway and "
+                      "lose them, or go back and save it (Ctrl+S).")
+CLOSE_ANYWAY = "Close without saving"
 FFMPEG_MISSING_TITLE = "FFmpeg is not available"
 FFMPEG_MISSING_BODY = "The tools needed for audio processing were not found."
 FFMPEG_NOT_FOUND = "{tool}: not found"
@@ -482,10 +484,10 @@ HOME_STEPS = (
                "software. The project file keeps everything, including your marks."))
 HOME_MARKING_HEADING = "Marking the text"
 HOME_MARKING = (
-    "Select a few words in the open turn. Then: Ctrl+B for bold, Ctrl+1, Ctrl+2 or Ctrl+3 "
-    "for the three highlight colours, Ctrl+D to attach a comment to exactly those words. "
+    "Select a few words in the open turn. Then: Ctrl+B for bold, Ctrl+1 to Ctrl+4 "
+    "for the four highlight colours, Ctrl+D to attach a comment to exactly those words. "
     "All of it lands in the Word file — real highlighting, real bold, comments in the "
-    "margin pointing at the phrase rather than the paragraph. Name the three colours in "
+    "margin pointing at the phrase rather than the paragraph. Name the four colours in "
     "Settings and the names are printed as a key at the top of the document.")
 HOME_REVIEW_HEADING = "Keeping your place"
 HOME_REVIEW = (
@@ -546,5 +548,3 @@ UNDO_CHECKED = "checking turn {index}"
 UNDO_REVIEWED = "reviewing turn {index}"
 DUPLICATE_NAME = ("{name} is already the name of another speaker. If they are the same "
                   "person, merge them instead — the menu beside the name does it.")
-
-STARTING_TOOLS = "Looking for FFmpeg…"

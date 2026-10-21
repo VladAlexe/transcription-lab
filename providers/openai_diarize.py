@@ -13,7 +13,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AuthenticationError, OpenAI, RateLimitError
 
 from audio_processing import create_chunks, probe_audio
 from models import AudioChunk, MediaToolPaths, TranscriptSegment
@@ -51,6 +50,7 @@ def parse_response(response: Any, chunk: AudioChunk) -> list[TranscriptSegment]:
 
 
 def _friendly(exc: Exception) -> str:
+    from openai import APIConnectionError, APITimeoutError
     status, text = getattr(exc, "status_code", None), str(exc).lower()
     if status == 401 or "api key" in text: return "The API key is invalid or lacks the required permissions."
     if status == 413 or "too large" in text: return "The audio fragment is too large for the API. Lower the fragment limit."
@@ -63,6 +63,9 @@ def _friendly(exc: Exception) -> str:
 
 def transcribe_chunk(api_key: str, chunk: AudioChunk, attempts: int = 3,
                      language: str = DEFAULT_LANGUAGE) -> list[TranscriptSegment]:
+    # Imported here, not at the top: the SDK takes seconds to import, and at module level
+    # those seconds were spent on every launch, behind a black window, before main() ran.
+    from openai import APIConnectionError, APIStatusError, APITimeoutError, AuthenticationError, OpenAI, RateLimitError
     client = OpenAI(api_key=api_key)
     # "Detect automatically" means send no language at all; the model then works it out.
     # Passing the word "auto" would reach the API as a language code and be rejected.

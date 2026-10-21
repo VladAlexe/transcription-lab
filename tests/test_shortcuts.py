@@ -422,9 +422,15 @@ class MarkingKeyTests(_Press, unittest.TestCase):
 
     def test_the_review_keys_reach_their_own_actions(self) -> None:
         for key, expected in (("j", "locate_open_turn"), ("p", "play_segment"),
-                              ("e", "toggle_unchecked_filter"), ("r", "resume_review")):
+                              ("r", "resume_review")):
             with self.subTest(key=key):
                 self.assertEqual(self.press(key, ctrl=True), [expected])
+
+    def test_control_e_is_no_longer_a_shortcut(self) -> None:
+        """It sat next to the keys used while typing and flipped the filter by accident;
+        the filter is the button on the progress strip now, and nothing else."""
+        self.assertEqual(self.press("e", ctrl=True), [])
+        self.assertEqual(self.press("e", ctrl=True, typing=True), [])
 
     def test_a_digit_on_its_own_is_still_a_digit_in_the_text(self) -> None:
         for key in ("1", "0"):

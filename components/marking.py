@@ -17,7 +17,7 @@ from components.buttons import icon_button
 from theme import panel_title
 
 SWATCH = 22
-# Dimmed while nothing is selected, but still recognisably the three colours: at a third
+# Dimmed while nothing is selected, but still recognisably the four colours: at a third
 # they read as mud, which looks like a fault rather than like "not yet".
 DIM = 0.5
 
@@ -79,7 +79,7 @@ def marking_bar(field: ft.TextField, marks: list[an.Annotation], labels: list[st
                 on_comment: Callable[[int, int], None],
                 on_clear: Callable[[int, int], None],
                 refs: dict | None = None) -> ft.Control:
-    """Bold, three highlighters, a comment, and a way to undo them — for the live selection.
+    """Bold, four highlighters, a comment, and a way to undo them — for the live selection.
 
     The buttons are dead until something is selected and come alive when it is, so the bar
     answers "can I do this now?" without being read. Nothing here is a dialog or a mode: the

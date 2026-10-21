@@ -379,7 +379,8 @@ class AppController:
         # The colour code travels with the project, so a reopened interview still says what
         # each highlight meant. A project saved before this simply keeps the current names.
         legend=[str(name) for name in (data.get("highlight_legend") or []) if isinstance(name,str)]
-        if legend: self.state.settings.highlight_labels=(legend+["","",""])[:3]
+        # A project saved with three colours keeps the name already set for the fourth.
+        if legend: self.state.settings.highlight_labels=an.pad_labels(legend,self.state.settings.highlight_labels)
         # A name already in Settings is not overwritten by an empty one from an older file.
         stored_reviewer=review.get("reviewer") if isinstance(review,dict) else None
         if isinstance(stored_reviewer,str) and stored_reviewer.strip():

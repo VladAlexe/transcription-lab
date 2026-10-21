@@ -16,11 +16,28 @@ def open_with_system(path: str) -> None: os.startfile(path)  # type: ignore[attr
 
 
 def write_bytes(path: str, data: bytes) -> None:
-    target=Path(path); target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
+    """Replace the file whole or not at all.
+
+    Written in place, a save interrupted half way — the window closed, the machine slept, a
+    sync client holding the file — left a truncated project that would not open again. The
+    data goes to a sibling file first and is swapped in only once it is all on disk.
+    """
+    target=Path(path); target.parent.mkdir(parents=True, exist_ok=True)
+    staging=target.with_name(f".{target.name}.saving")
+    try:
+        with staging.open("wb") as stream:
+            stream.write(data); stream.flush(); os.fsync(stream.fileno())
+        os.replace(staging,target)
+    except OSError:
+        # Some folders refuse the rename (a sync client or scanner holding the target).
+        # Writing directly is what this always did, so it remains the fallback.
+        try: staging.unlink(missing_ok=True)
+        except OSError: pass
+        target.write_bytes(data)
 
 
 def write_text(path: str, data: str) -> None:
-    target=Path(path); target.parent.mkdir(parents=True, exist_ok=True); target.write_text(data, encoding="utf-8-sig")
+    write_bytes(path, data.encode("utf-8-sig"))
 
 
 def load_json(path: str) -> dict[str, Any]:

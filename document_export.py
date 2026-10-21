@@ -2,18 +2,13 @@ from __future__ import annotations
 import json
 from io import BytesIO
 from typing import Any
-from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from docx.shared import Cm, Pt, RGBColor
 import annotations as an
 from models import AudioChunk, AudioInfo, TranscriptSegment
 import strings as s
 from speaker_reconciliation import apply_speaker_mapping
 from transcription import MODEL
 
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 
 
 def format_timestamp(seconds: float) -> str:
@@ -73,11 +68,14 @@ def make_json(*args: Any, **kwargs: Any) -> bytes:
 def _paint(run: Any, slot: str) -> None:
     """Put a slot's colour behind a run, with the ink that stays readable on it.
 
-    Word's highlighter has fifteen fixed colours and none of the three is among them, so
+    Word's highlighter has fifteen fixed colours and none of the four is among them, so
     every slot is written as run shading — a plain `w:shd` fill, which takes any RGB and
     renders as the same coloured band behind the words. The ink is set alongside it because
     Smoky Rose is dark enough that Word's default black on it is 3.1:1.
     """
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import RGBColor
     fill,ink=an.HIGHLIGHTS[slot]
     shading=OxmlElement("w:shd")
     shading.set(qn("w:val"),"clear"); shading.set(qn("w:color"),"auto"); shading.set(qn("w:fill"),fill)
@@ -88,12 +86,13 @@ def _paint(run: Any, slot: str) -> None:
 def _legend(document: Any, segments: list[TranscriptSegment], labels: list[str] | None) -> None:
     """Say what the highlight colours mean, but only for the ones actually used.
 
-    A colour code is only a code if the reader is told the key. Printing all three when the
+    A colour code is only a code if the reader is told the key. Printing all four when the
     transcript uses one would be noise, so the legend lists what is on the page.
     """
     used={a.slot for item in segments for a in getattr(item,"annotations",None) or []
           if a.kind==an.HIGHLIGHT and a.slot in an.HIGHLIGHTS}
     if not used: return
+    from docx.shared import Pt
     names=list(labels or [])
     line=document.add_paragraph(); line.add_run(f"{s.DOC_LEGEND}: ").bold=True
     for position,slot in enumerate(sorted(used)):
@@ -105,6 +104,9 @@ def _legend(document: Any, segments: list[TranscriptSegment], labels: list[str] 
 
 
 def _page_number(paragraph: Any) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     paragraph.alignment=WD_ALIGN_PARAGRAPH.CENTER; run=paragraph.add_run()
     begin=OxmlElement("w:fldChar"); begin.set(qn("w:fldCharType"),"begin")
     instruction=OxmlElement("w:instrText"); instruction.set(qn("xml:space"),"preserve"); instruction.text=" PAGE "
@@ -115,6 +117,11 @@ def make_docx(info: AudioInfo, segments: list[TranscriptSegment], mapping: dict[
               title: str="", metadata: dict[str,str] | None=None,
               include_timestamps: bool=True, include_notice: bool=True, model: str="",
               comment_author: str="", highlight_labels: list[str] | None=None) -> bytes:
+    # python-docx is imported on export, not at start-up: it pulls in lxml, which is most of
+    # a second of every launch for a feature used once at the end of the work.
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Cm, Pt, RGBColor
     try:
         document=Document(); section=document.sections[0]
         section.top_margin=section.bottom_margin=Cm(2.5); section.left_margin=section.right_margin=Cm(2.5)

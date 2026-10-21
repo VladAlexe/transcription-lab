@@ -27,7 +27,7 @@ noop = lambda *a, **k: None
 
 def configured() -> AppState:
     state = AppState()
-    state.settings.highlight_labels = ["Key quote", "Needs checking", "Follow up"]
+    state.settings.highlight_labels = ["Key quote", "Needs checking", "Follow up", "Context"]
     state.settings.reviewer = "Vlad Alexe"
     state.settings.language = "nl"
     state.settings.appearance = "dark"
@@ -64,7 +64,7 @@ class SettingsSaveTests(unittest.TestCase):
     def test_the_highlight_names_reach_the_application(self) -> None:
         """What the researcher was doing when the screen fell over."""
         values, _ = self.save()
-        self.assertIn(["Key quote", "Needs checking", "Follow up"], values)
+        self.assertIn(["Key quote", "Needs checking", "Follow up", "Context"], values)
 
     def test_the_reviewer_name_reaches_the_application(self) -> None:
         values, _ = self.save()

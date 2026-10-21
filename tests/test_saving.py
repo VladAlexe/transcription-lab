@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -70,7 +71,9 @@ class DirectSaveTests(unittest.TestCase):
         asked: list[bool] = []
         stand_in = SimpleNamespace(controller=controller, refs={},
                                    _safe_update=lambda *a: True, _refresh_status=noop,
-                                   render=noop,
+                                   render=noop, commit_correction=noop,
+                                   _save_lock=threading.Lock(), _autosave_pending=False,
+                                   _last_autosave=0.0,
                                    page=SimpleNamespace(run_task=lambda *a: asked.append(True)))
         stand_in.save_target = lambda: main.DesktopApp.save_target(stand_in)
         stand_in._refresh_save_button = lambda: main.DesktopApp._refresh_save_button(stand_in)

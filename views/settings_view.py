@@ -107,7 +107,7 @@ def build(state: AppState, on_apply: Callable[..., None], on_choose_tools: Calla
     include = syncing(ft.Switch(label=s.SETTINGS_INCLUDE_PATH,
                                 value=settings.include_source_path_json,
                                 active_color=t.primary()))
-    # Three highlighters, named. A colour with no key is decoration; named here it becomes a
+    # Four highlighters, named. A colour with no key is decoration; named here it becomes a
     # code, and the names are printed as a legend in the exported Word file so a colleague
     # who never opened this application can still read the marking.
     names = list(settings.highlight_labels or [])
@@ -120,7 +120,7 @@ def build(state: AppState, on_apply: Callable[..., None], on_choose_tools: Calla
     swatches = ft.ResponsiveRow([
         ft.Row([ft.Container(width=18, height=18, bgcolor=an.colour(slot), border_radius=t.R_SM,
                     border=ft.Border.all(t.HAIRLINE, t.outline())), box],
-               spacing=t.S8, vertical_alignment=ft.CrossAxisAlignment.CENTER, col=THIRD)
+               spacing=t.S8, vertical_alignment=ft.CrossAxisAlignment.CENTER, col=HALF)
         for slot, box in zip(an.SLOTS, highlights)], spacing=t.S12, run_spacing=t.S12)
 
     # Only the OpenAI path cuts the recording into fragments. On every other provider these

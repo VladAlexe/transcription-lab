@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os,time
+import os,threading,time
 from pathlib import Path
 from urllib.parse import parse_qs,urlparse
 import flet as ft
@@ -9,10 +9,9 @@ import annotations as an
 from audio_player import AudioPlayer
 import strings as s
 from app_controller import AppController
-from app_state import ExportMetadata
+from app_state import DEFAULT_HIGHLIGHT_LABELS,ExportMetadata
 import layout_audit
 from components.app_shell import Layout,app_shell,measure
-from components import brand
 from components.buttons import primary_button,tertiary_button
 from components.audio_transport import audio_transport
 from components.transcript_list import carries_marks,paint_turn,row_state
@@ -54,7 +53,7 @@ class DesktopApp:
         self.follow_playback=True
         # Marking a turn writes the project back, throttled so holding Ctrl+Enter down
         # cannot turn a 3 MB write into a stutter on every turn.
-        self._last_autosave=0.0;self._autosave_pending=False
+        self._last_autosave=0.0;self._autosave_pending=False;self._save_lock=threading.Lock()
         self.find_options=find_replace.Options()
         # One Audio service for the whole session. In Flet 0.86 audio ships in `flet-audio` and
         # Audio is a Service, so it is attached to page.services rather than page.controls.
@@ -83,52 +82,50 @@ class DesktopApp:
         except (TypeError,ValueError):settings.auto_rewind_seconds=1.5
         stored=self.preferences.get("highlight_labels")
         if isinstance(stored,list):
-            settings.highlight_labels=[str(name)[:40] for name in (stored+["","",""])[:3]]
+            # Projects from before the fourth colour stored three names; the new slot takes
+            # its default rather than starting blank.
+            settings.highlight_labels=an.pad_labels(stored,DEFAULT_HIGHLIGHT_LABELS)
         settings.reviewer=str(self.preferences.get("reviewer","") or "")[:80]
         self.apply_rewind()
-        # Everything above is reading a small JSON file. What follows is not: resolving the
-        # media tools runs ffmpeg and ffprobe and waits for them, and on a cold start that is
-        # seconds of a black window that looks like a hang. So the window is configured and
-        # something is put on it first, and the slow part happens with the splash visible.
+        # Everything above is reading a small JSON file. Resolving the media tools is not: it
+        # runs ffmpeg and ffprobe and waits for them, which on a cold start (or with an
+        # antivirus scanning both executables) is anywhere from nothing to many seconds. Done
+        # here, before the first render, that was a black window of unpredictable length. The
+        # interface goes up first and the tools are found behind it; nothing on the first
+        # screen needs them, and choosing a recording waits for them if it gets there first.
+        self._tools_ready=threading.Event()
         self.configure_page()
-        self.show_starting(s.STARTING_TOOLS)
-        self.controller.state.media_tools=resolve_media_tools([self.controller.state.settings.user_media_tool_path])
         query=parse_qs(urlparse(page.route).query);query_screen=query.get("screen",[""])[0]
         if query.get("dark",[""])[0]=="1":self.controller.state.settings.appearance="dark"
-        self._configure_visual_demo(os.environ.get("TRANSCRIBER_DEMO_SCREEN","") or os.environ.get("TRANSCRIERE_DEMO_SCREEN","") or query_screen)
+        demo=os.environ.get("TRANSCRIBER_DEMO_SCREEN","") or os.environ.get("TRANSCRIERE_DEMO_SCREEN","") or query_screen
+        self._configure_visual_demo(demo)
         self.render();self.fit_restore_size()
         # Cosmetic and guarded: `flet run` uses a prebuilt client, so the taskbar shows that
         # executable's icon until ours is attached to the live window handle.
         window_icon.apply_in_background(s.APP_NAME,Path(__file__).resolve().parent/"assets"/"icon.ico",
             lambda message:print(message,flush=True))
-        if not self.controller.state.media_tools.is_valid:self.show_missing_tools()
+        if demo=="missing":self._tools_ready.set();self.show_missing_tools()
+        else:threading.Thread(target=self._resolve_tools_in_background,daemon=True).start()
 
-    def show_starting(self,message:str)->None:
-        """Put the mark and a turning ring on the window before anything slow happens.
-
-        The first launch spends its time in two places the application cannot speed up —
-        the client opening and FFmpeg being probed — and until now both were spent behind a
-        black rectangle. A window that says what it is doing is not faster, but it is the
-        difference between waiting and wondering whether it has crashed.
-        """
+    def _resolve_tools_in_background(self)->None:
+        """Find FFmpeg once the window is up, and say so only if it is missing."""
         try:
-            self.page.controls.clear()
-            self.page.add(ft.Container(ft.Column([
-                    brand.mark(t.MARK_HERO),
-                    ft.Text(s.APP_NAME,size=t.TYPE_TITLE,weight=ft.FontWeight.W_600,
-                        color=t.on_surface()),
-                    ft.Container(height=t.S8),
-                    ft.ProgressRing(width=22,height=22,stroke_width=3,color=t.primary(),
-                        bgcolor=t.outline()),
-                    ft.Text(message,size=t.TYPE_LABEL,color=t.muted())],
-                    spacing=t.S12,tight=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    alignment=ft.MainAxisAlignment.CENTER),
-                expand=True,bgcolor=t.background(),alignment=ft.Alignment.CENTER))
-            self.page.update()
+            self.controller.state.media_tools=resolve_media_tools([self.controller.state.settings.user_media_tool_path])
         except Exception as exc:
-            # A splash that fails must not be the reason the application does not start.
-            print(f"[startup] splash skipped: {exc}",flush=True)
+            print(f"[startup] media tools: {exc}",flush=True)
+        finally:
+            self._tools_ready.set()
+        try:
+            if not self.controller.state.media_tools.is_valid:self.show_missing_tools()
+            # Settings prints the FFmpeg status; if it is open, it was drawn before it was known.
+            elif self.show_settings:self.render()
+        except Exception as exc:
+            print(f"[startup] media tools: {exc}",flush=True)
+
+    def wait_for_tools(self,timeout:float=30.0)->None:
+        """Anything that runs FFmpeg calls this first, in case the start-up probe is still going."""
+        ready=getattr(self,"_tools_ready",None)
+        if ready is not None:ready.wait(timeout)
 
     def _configure_visual_demo(self,screen:str)->None:
         """Populate deterministic UI states used only by screenshot quality checks."""
@@ -182,9 +179,26 @@ class DesktopApp:
         self._safe_update(button)
 
     def close_window(self)->None:
-        """Same guarantees as the OS close button: refuse while busy, clean up, then exit."""
-        if self.controller.state.processing:
+        """Same guarantees as the OS close button: refuse while busy, save, then exit."""
+        self.request_close()
+
+    def request_close(self)->None:
+        """The one way out, whichever close button was used.
+
+        The application's own button used to skip the final write the OS button made, so the
+        last few seconds of work survived one way of closing and not the other. And a project
+        never saved to a file had nowhere to be written, so closing threw it away in silence.
+        """
+        state=self.controller.state
+        if state.processing:
             message_dialog(self.page,s.BUSY_TITLE,s.BUSY_BODY);return
+        self.commit_correction();self.autosave(force=True)
+        if state.dirty and state.transcript_segments:
+            confirm_dialog(self.page,s.UNSAVED_TITLE,s.CLOSE_UNSAVED_BODY,self._close_now,s.CLOSE_ANYWAY)
+            return
+        self._close_now()
+
+    def _close_now(self)->None:
         self.controller.state.cleanup_temporary();self.page.run_task(self._safe_destroy)
 
     def fit_restore_size(self)->None:
@@ -294,6 +308,7 @@ class DesktopApp:
         which during playback would drag the audio backwards on every turn boundary.
         """
         if index==self.selected_segment: return
+        self.keep_edit()
         previous,self.selected_segment=self.selected_segment,index
         touched:list[ft.Control]=[]
         rows=self.refs.get("rows") or {}
@@ -372,7 +387,7 @@ class DesktopApp:
 
     # ── Find and replace ─────────────────────────────────────────────────────
     def open_find(self)->None:
-        self.find_open=True;self.render()
+        self.keep_edit();self.find_open=True;self.render()
 
     def close_find(self)->None:
         self.find_open=False;self.render()
@@ -393,14 +408,16 @@ class DesktopApp:
         self._safe_update(count,apply)
 
     def replace_all(self)->None:
+        self.keep_edit()
         record=self.controller.replace_all(self.find_term,self.find_replacement,self.find_options)
         self.render()
         if record.applied:
             notification(self.page,s.FIND_DONE.format(count=record.matches,turns=record.turns))
+            self.autosave()
 
     def undo_replace(self)->None:
         if self.controller.undo_replace():
-            self.render();notification(self.page,s.FIND_UNDONE)
+            self.render();notification(self.page,s.FIND_UNDONE);self.autosave()
 
     def overlays(self,layout:Layout)->list[ft.Control]:
         """Every transient tool that is currently open, as floating panels.
@@ -494,7 +511,7 @@ class DesktopApp:
     def set_note(self,index:int,note:str)->None:
         """A comment on a turn, saved as you type. It never touches the transcript text."""
         if self.controller.annotate_segment(index,note):
-            self._refresh_row_marks(index);self._refresh_status()
+            self._refresh_row_marks(index);self._refresh_status();self.autosave()
 
     def toggle_note(self)->None:
         self.note_open=not self.note_open;self.refresh_inspector()
@@ -522,6 +539,7 @@ class DesktopApp:
         self.show_original=not self.show_original;self.refresh_inspector()
 
     def refresh_inspector(self)->None:
+        self.keep_edit()
         host=self.refs.get("inspector_host")
         if host is None: self.render();return
         host.content=self.build_inspector()
@@ -583,14 +601,40 @@ class DesktopApp:
             return False
         now=time.monotonic()
         if not force and now-self._last_autosave<self.AUTOSAVE_INTERVAL:
-            self._autosave_pending=True;return False
+            # Skipped, not dropped. This used to wait for the next change to carry it, so the
+            # last edit of a burst sat unsaved until something else happened — or forever, if
+            # nothing did. One write is now booked for when the interval is up.
+            if not self._autosave_pending:
+                self._autosave_pending=True
+                try: self.page.run_task(self._flush_autosave)
+                except Exception as exc: print(f"[autosave] cannot schedule: {exc}",flush=True)
+            return False
         try:
-            self.controller.save_project(self.save_target())
+            with self._save_lock: self.controller.save_project(self.save_target())
         except Exception as exc:
             error_notification(self.page,str(exc));return False
         self._last_autosave=now;self._autosave_pending=False
         self._refresh_status()
         return True
+
+    async def _flush_autosave(self)->None:
+        import asyncio
+        await asyncio.sleep(self.AUTOSAVE_INTERVAL)
+        if not self._autosave_pending: return
+        self._autosave_pending=False
+        try: self.autosave(force=True)
+        except Exception as exc: print(f"[autosave] {type(exc).__name__}: {exc}",flush=True)
+
+    def keep_edit(self)->None:
+        """Write the open box into its turn, and the project to disk, before the box goes.
+
+        The box is rebuilt by a great many things — opening another turn, following the
+        audio, Ctrl+K, find, a filter, Settings — and each rebuild used to throw away what had
+        been typed but not yet saved with Ctrl+S or Ctrl+Enter. Which actions kept an edit
+        and which lost it depended on the path taken, and that is what made saving feel
+        inconsistent. Every path out of the box now goes through here.
+        """
+        if self.commit_correction(): self.autosave()
 
     def refresh_progress(self,*touched:ft.Control|None)->bool:
         state=self.controller.state
@@ -621,6 +665,7 @@ class DesktopApp:
         self.reveal_turn(following)
 
     def toggle_unchecked_filter(self)->None:
+        self.keep_edit()
         state=self.controller.state
         state.show_only_unchecked=not state.show_only_unchecked
         self.transcript_offset=0;self.render()
@@ -666,6 +711,7 @@ class DesktopApp:
         self.controller.correct_segment(index,text)
         self._safe_update(field)
         self._refresh_row_text(index)
+        self.autosave()
 
     def undo(self)->None:
         """Put the last change back, and say which one it was.
@@ -683,8 +729,13 @@ class DesktopApp:
         self.autosave()
 
     def set_typing(self,active:bool)->None:
-        """A text field took or lost focus. Space belongs to the text while it is typing."""
+        """A text field took or lost focus. Space belongs to the text while it is typing.
+
+        Leaving a field is also the moment its text is kept: clicking anywhere else used to
+        leave the edit sitting in the box, lost the moment the box was rebuilt.
+        """
         self.typing=active
+        if not active: self.keep_edit()
 
     # Key names as Flet reports them, with the spellings other builds have used, so a
     # shortcut cannot quietly stop working because a label changed.
@@ -698,10 +749,10 @@ class DesktopApp:
     # transcript focused scrolls the list as well as toggling the audio, and Ctrl+Space put
     # a space in the sentence. A letter has neither meaning, so it can only pause. F4 is
     # kept beside it because transcription foot pedals are commonly mapped to a function key.
-    # Ctrl+1/2/3 pick a highlighter, Ctrl+0 takes the marks off. Flet reports the digit
+    # Ctrl+1/2/3/4 pick a highlighter, Ctrl+0 takes the marks off. Flet reports the digit
     # row by name, so both spellings are accepted rather than guessed at.
-    SLOT_KEYS={"1":"1","2":"2","3":"3","Digit 1":"1","Digit 2":"2","Digit 3":"3",
-               "Numpad 1":"1","Numpad 2":"2","Numpad 3":"3"}
+    SLOT_KEYS={"1":"1","2":"2","3":"3","4":"4","Digit 1":"1","Digit 2":"2","Digit 3":"3",
+               "Digit 4":"4","Numpad 1":"1","Numpad 2":"2","Numpad 3":"3","Numpad 4":"4"}
     CLEAR_KEYS=("0","Digit 0","Numpad 0")
     PLAY_LETTERS = ("w",)
     PLAY_KEYS = ("F4",)
@@ -787,7 +838,6 @@ class DesktopApp:
             elif letter=="m": self.toggle_note()
             elif letter=="j": self.locate_open_turn()
             elif letter=="p": self.play_segment(self.selected_segment) if self.selected_segment is not None else None
-            elif letter=="e": self.toggle_unchecked_filter()
             elif letter=="r": self.resume_review() if self.resume_target() is not None else None
             return
 
@@ -906,10 +956,7 @@ class DesktopApp:
         print(f"[layout:{reason}] {layout.describe()}",flush=True)
 
     def window_event(self,e:ft.WindowEvent)->None:
-        if e.type==ft.WindowEventType.CLOSE:
-            if self.controller.state.processing:message_dialog(self.page,s.BUSY_TITLE,s.BUSY_BODY);return
-            self.autosave(force=True)
-            self.controller.state.cleanup_temporary();self.page.run_task(self._safe_destroy)
+        if e.type==ft.WindowEventType.CLOSE: self.request_close()
     async def _safe_destroy(self)->None:
         try:await self.page.window.destroy()
         except RuntimeError:pass
@@ -1012,10 +1059,10 @@ class DesktopApp:
         return {0:"recording",1:"transcription",2:"speakers"}.get(self.controller.state.current_workflow_step,"export")
 
     def toggle_nav(self)->None:
-        self.nav_minimised=not self.nav_minimised;self.render()
+        self.keep_edit();self.nav_minimised=not self.nav_minimised;self.render()
 
     def toggle_panel(self)->None:
-        self.panel_collapsed=not self.panel_collapsed;self.render()
+        self.keep_edit();self.panel_collapsed=not self.panel_collapsed;self.render()
 
     def set_speed(self,rate:float)->None:
         """Playback speed. The service is rebuilt because a source-bearing Audio is the only
@@ -1132,9 +1179,10 @@ class DesktopApp:
 
     def navigate(self,step:int)->None:
         if self.controller.can_enter(step):
+            self.keep_edit()
             self.show_settings=self.show_home=False
             self.controller.state.current_workflow_step=step;self.render()
-    def open_settings(self)->None:self.show_settings=True;self.show_home=False;self.render()
+    def open_settings(self)->None:self.keep_edit();self.show_settings=True;self.show_home=False;self.render()
 
     def go_home(self)->None:
         """The wordmark leads here: what the application is for, and how to work through it.
@@ -1142,12 +1190,13 @@ class DesktopApp:
         It is a screen rather than a dialog because it is reference material — the shortcut
         list and the export table are things to read beside the work, not to dismiss.
         """
-        self.show_home=True;self.show_settings=False;self.render()
+        self.keep_edit();self.show_home=True;self.show_settings=False;self.render()
 
     def leave_home(self)->None:
         """Back to whichever step the project is actually at."""
         self.show_home=False;self.render()
     def toggle_theme(self)->None:
+        self.keep_edit()
         self.page.theme_mode=ft.ThemeMode.DARK if self.page.theme_mode!=ft.ThemeMode.DARK else ft.ThemeMode.LIGHT
         self.render()
 
@@ -1158,6 +1207,7 @@ class DesktopApp:
         if files and files[0].path:
             def worker()->None:
                 try:
+                    self.wait_for_tools()
                     self.controller.select_recording(files[0].path);self.controller.set_range(None,None)
                     self.player.bind(self.controller.state.audio_path);self.render()
                 except Exception as exc:error_notification(self.page,str(exc))
@@ -1210,7 +1260,7 @@ class DesktopApp:
         # reading of the transcript ambiguous. It is not refused — it can be a step towards
         # merging them — but it is said out loud instead of accepted in silence.
         clash=self.controller.duplicate_name(speaker,name)
-        self.controller.map_speaker(speaker,name);self._refresh_speaker(speaker)
+        self.controller.map_speaker(speaker,name);self._refresh_speaker(speaker);self.autosave()
         if clash is not None:
             notification(self.page,s.DUPLICATE_NAME.format(name=name.strip()))
     def reassign_turn(self,index:int,speaker_id:str)->None:
@@ -1220,6 +1270,7 @@ class DesktopApp:
         name=state.speaker_mapping.get(speaker_id,speaker_id)
         self.render()
         notification(self.page,s.REASSIGN_DONE.format(speaker=name))
+        self.autosave()
 
     def merge_speakers(self,source:str,target:str)->None:
         """Fold one label into another, behind a confirmation that says what will happen."""
@@ -1240,11 +1291,15 @@ class DesktopApp:
         name=self.controller.state.speaker_mapping.get(target,target)
         self.render()
         notification(self.page,s.MERGE_DONE.format(count=moved,target=name))
+        self.autosave()
     def close_inspector(self)->None:
-        self.selected_segment=None;self.render()
+        self.keep_edit();self.selected_segment=None;self.render()
 
 
     def select_segment(self,index:int)->None:
+        # Ctrl+Up/Down and a click on another row both arrive here with the caret possibly
+        # still in the box; whatever it holds belongs to the turn being left.
+        self.keep_edit()
         previous=self.selected_segment;self.selected_segment=index
         segments=self.controller.state.transcript_segments
         # Clicking a turn positions the player on its exact start.
@@ -1267,7 +1322,7 @@ class DesktopApp:
             touched.append(host)
         if not touched or not self._safe_update(*touched):self.render()
     def change_page(self,offset:int)->None:
-        self.transcript_offset=offset;self.selected_segment=None;self.render()
+        self.keep_edit();self.transcript_offset=offset;self.selected_segment=None;self.render()
     def save_correction(self,index:int,text:str)->None:
         """The button under the box. Saving a correction is also saying you checked it.
 
@@ -1280,7 +1335,7 @@ class DesktopApp:
         self.controller.correct_segment(index,text);self._refresh_row_text(index)
         self.set_checked(index,True)
     def revert_correction(self,index:int)->None:
-        self.controller.correct_segment(index,None);self._refresh_row_text(index)
+        self.controller.correct_segment(index,None);self._refresh_row_text(index);self.autosave()
         host=self.refs.get("inspector_host")
         if host is not None:
             host.content=self.build_inspector(index)
@@ -1319,13 +1374,15 @@ class DesktopApp:
 
     def save_project(self)->None:
         """Ctrl+S and the Save button. Straight to the known file, or ask once."""
+        self.commit_correction()
         target=self.save_target()
         if not target:
             self.page.run_task(self._save_project);return
         try:
-            self.controller.save_project(target)
+            with self._save_lock: self.controller.save_project(target)
         except Exception as exc:
             error_notification(self.page,str(exc));return
+        self._autosave_pending=False;self._last_autosave=time.monotonic()
         # No dialog means no feedback unless we give some; the top bar flips to Saved too.
         notification(self.page,s.SAVED_TO.format(name=Path(target).name))
         self._refresh_status()
@@ -1333,6 +1390,7 @@ class DesktopApp:
 
     def save_project_as(self)->None:
         """Ctrl+Shift+S: the way to a different file once one is remembered."""
+        self.commit_correction()
         self.page.run_task(self._save_project)
 
     async def _save_project(self)->None:
@@ -1400,9 +1458,9 @@ class DesktopApp:
             except (TypeError,ValueError):pass
             t.set_type_scale(settings.type_scale)
         if highlight_labels is not None:
-            # Three names, kept in slot order; a blank one falls back to "Colour N" wherever
-            # the name is shown, so clearing a name is allowed rather than punished.
-            settings.highlight_labels=[str(name)[:40] for name in (list(highlight_labels)+["","",""])[:3]]
+            # One name per slot, kept in slot order; a blank one falls back to "Colour N"
+            # wherever the name is shown, so clearing a name is allowed rather than punished.
+            settings.highlight_labels=an.pad_labels(highlight_labels)
         if reviewer is not None: settings.reviewer=str(reviewer).strip()[:80]
         self.apply_rewind()
         self.preferences.update({"appearance":appearance,"media_tool_path":settings.user_media_tool_path,

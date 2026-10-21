@@ -375,6 +375,11 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
         text_size=t.TYPE_BODY,border_radius=t.RADIUS,border_color=t.outline(),
         focused_border_color=t.primary(),focused_border_width=1,border_width=1,
         content_padding=ft.Padding(t.S12,t.S8,t.S12,t.S8),color=t.on_surface(),
+        # A turn is one paragraph. Enter used to break it in two, and Ctrl+Enter — reported
+        # to the page but still delivered to the box — left a stray line break behind every
+        # turn it advanced from. With this the box swallows Enter in all its forms; a line
+        # break, when one is genuinely wanted, is Shift+Enter.
+        shift_enter=True,
         on_focus=(lambda e:on_typing(True)) if on_typing else None,
         on_blur=(lambda e:on_typing(False)) if on_typing else None)
     # Every keystroke reports back. Without this the value on the Python side is whatever
@@ -499,6 +504,7 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
             text_size=t.TYPE_SECONDARY,border_radius=t.R_SM,border_color=t.outline(),
             focused_border_color=t.primary(),color=t.on_surface(),
             label_style=ft.TextStyle(size=t.TYPE_LABEL,color=t.muted()),
+            shift_enter=True,
             on_focus=(lambda e:on_typing(True)) if on_typing else None,
             on_blur=(lambda e:on_typing(False)) if on_typing else None)
         note.on_change=lambda e:(setattr(note,"value",e.control.value),on_note(index,e.control.value))[0]

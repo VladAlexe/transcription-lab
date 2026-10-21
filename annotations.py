@@ -1,4 +1,4 @@
-"""Marking part of a turn: a comment, bold, or one of three highlights.
+"""Marking part of a turn: a comment, bold, or one of four highlights.
 
 A note on a whole turn answers "this turn needs attention". A researcher quoting an
 interview needs the other thing: *this phrase*, right here. So an annotation is a character
@@ -19,25 +19,33 @@ HIGHLIGHT = "highlight"
 COMMENT = "comment"
 KINDS = (BOLD, HIGHLIGHT, COMMENT)
 
-# Three slots, named by the researcher in Settings. Three because a colour code people can
+# Four slots, named by the researcher in Settings. Four because a colour code people can
 # hold in their head is three or four long; a palette of fifteen is a palette, not a code.
-SLOTS = ("1", "2", "3")
+SLOTS = ("1", "2", "3", "4")
 
-# The three highlighter colours, taken from the application's own palette: Amber Earth,
-# Smoky Rose and Muted Teal. Word's highlighter has fifteen fixed colours and none of these
-# is among them, so all three are written as run shading — a `w:shd` fill, which takes any
+# The four highlighter colours, taken from the application's own palette: Amber Earth,
+# Smoky Rose, Muted Teal and Granite. Word's highlighter has fifteen fixed colours and none
+# of these is among them, so all four are written as run shading — a `w:shd` fill, which takes any
 # RGB and renders as the same coloured band behind the words. The cost is that Word's "find
 # highlighted text" does not see them; the gain is the colours the researcher chose from,
 # consistently, rather than three approximations from a stock set.
 #
 # The second value is the ink. Smoky Rose is dark enough that near-black on it is 3.1:1 —
-# unreadable — so it takes white; the other two take the palette's Carbon Black at 5:1 and
-# better. Screen and document use the same pairing.
+# unreadable — so it takes white, as does Granite (white on it is 9:1); the other two take
+# the palette's Carbon Black at 5:1 and better. Screen and document use the same pairing.
 HIGHLIGHTS: dict[str, tuple[str, str]] = {
     "1": ("E8871E", "23231A"),   # Amber Earth
     "2": ("945D5E", "FFFFFF"),   # Smoky Rose
     "3": ("759588", "23231A"),   # Muted Teal
+    "4": ("424D44", "FFFFFF"),   # Granite
 }
+
+
+def pad_labels(labels: list | None, defaults: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """One name per slot, in slot order: a short list is filled from `defaults`, then blanks."""
+    names = [str(name)[:40] for name in list(labels or [])[:len(SLOTS)]]
+    fill = list(defaults)
+    return names + [fill[i] if i < len(fill) else "" for i in range(len(names), len(SLOTS))]
 
 
 def ink(slot: str) -> str:

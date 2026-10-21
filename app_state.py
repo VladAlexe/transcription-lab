@@ -6,7 +6,7 @@ from undo import History
 from providers import DEFAULT_PROVIDER, ProviderCapabilities, provider_capabilities
 
 # One key per provider; every one of them lives only in the memory of this process.
-DEFAULT_HIGHLIGHT_LABELS = ("Key quote", "Needs checking", "Follow up")
+DEFAULT_HIGHLIGHT_LABELS = ("Key quote", "Needs checking", "Follow up", "Context")
 
 KEY_FIELDS = {"gladia": "gladia_api_key", "soniox": "soniox_api_key", "deepgram": "deepgram_api_key",
               "openai": "api_key", "compatible": "compatible_api_key"}
@@ -32,7 +32,7 @@ class PreparationSettings:
     # Pausing steps back this far so resuming catches the start of the word (0 disables).
     auto_rewind_enabled: bool = True
     auto_rewind_seconds: float = 1.5
-    # What each of the three highlight colours means in this study. A colour with no key is
+    # What each of the four highlight colours means in this study. A colour with no key is
     # decoration; named here, it becomes a code, and the names travel into the Word file as
     # a legend so a reader who never opened this application can still read the marking.
     highlight_labels: list[str] = field(default_factory=lambda: list(DEFAULT_HIGHLIGHT_LABELS))

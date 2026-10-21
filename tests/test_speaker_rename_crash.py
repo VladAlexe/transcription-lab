@@ -62,7 +62,7 @@ class RenameTests(unittest.TestCase):
         stand_in = SimpleNamespace(
             controller=controller, refs={"rows": rows, "speakers": {}},
             _safe_update=lambda *a: True, render=noop,
-            _refresh_inspector_if_showing=noop, _refresh_status=noop)
+            _refresh_inspector_if_showing=noop, _refresh_status=noop, autosave=noop)
         # Bind the two real methods under test to the stand-in.
         stand_in.visible_rows = lambda: main.DesktopApp.visible_rows(stand_in)
         stand_in._refresh_speaker = lambda speaker: main.DesktopApp._refresh_speaker(stand_in, speaker)

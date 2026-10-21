@@ -8,6 +8,7 @@ And the project has to write itself back, or an afternoon of marking depends on 
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,7 +44,7 @@ class FollowTests(unittest.TestCase):
         app = SimpleNamespace(
             controller=controller, refs={"rows": {}, "inspector_host": ft.Container()},
             follow_playback=following, typing=typing, selected_segment=selected,
-            _safe_update=lambda *a: True, render=noop,
+            _safe_update=lambda *a: True, render=noop, keep_edit=noop,
             build_inspector=lambda index=None: rebuilt.append(index) or ft.Container())
         app.follow_to = lambda index: main.DesktopApp.follow_to(app, index)
         app.rebuilt = rebuilt
@@ -111,7 +112,7 @@ class CheckedAndCorrectedTests(unittest.TestCase):
             selected_segment=0, page=SimpleNamespace(run_task=noop),
             _safe_update=lambda *a: True, render=noop, _refresh_status=noop,
             _refresh_row_text=noop, refresh_progress=lambda *a: True,
-            _last_autosave=0.0, _autosave_pending=False,
+            _last_autosave=0.0, _autosave_pending=False, _save_lock=threading.Lock(),
             AUTOSAVE_INTERVAL=main.DesktopApp.AUTOSAVE_INTERVAL)
         app.field = field
         app.save_target = lambda: main.DesktopApp.save_target(app)
@@ -193,7 +194,9 @@ class AutosaveTests(unittest.TestCase):
 
     def test_the_window_closing_forces_that_flush(self) -> None:
         import ast, inspect, main
-        tree = ast.parse(inspect.getsource(main.DesktopApp.window_event).strip())
+        # Both close buttons go through request_close, which is where the flush lives.
+        self.assertIn("request_close", inspect.getsource(main.DesktopApp.window_event))
+        tree = ast.parse(inspect.getsource(main.DesktopApp.request_close).strip())
         forced = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
                   and ast.unparse(node.func) == "self.autosave"
                   and any(kw.arg == "force" for kw in node.keywords)]
