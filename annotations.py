@@ -17,7 +17,10 @@ from dataclasses import asdict, dataclass, field
 BOLD = "bold"
 HIGHLIGHT = "highlight"
 COMMENT = "comment"
-KINDS = (BOLD, HIGHLIGHT, COMMENT)
+# Words the researcher could not make out. Not a colour — the colours are the study's own
+# code — but a wavy underline, the convention a reader already knows for "doubtful".
+UNCLEAR = "unclear"
+KINDS = (BOLD, HIGHLIGHT, COMMENT, UNCLEAR)
 
 # Four slots, named by the researcher in Settings. Four because a colour code people can
 # hold in their head is three or four long; a palette of fifteen is a palette, not a code.
@@ -125,10 +128,11 @@ class Run:
     bold: bool = False
     slot: str = ""                       # highlight slot, empty when not highlighted
     comments: list[str] = field(default_factory=list)
+    unclear: bool = False
 
     @property
     def marked(self) -> bool:
-        return bool(self.bold or self.slot or self.comments)
+        return bool(self.bold or self.slot or self.comments or self.unclear)
 
 
 def runs(text: str, existing: list[Annotation]) -> list[Run]:
@@ -155,10 +159,11 @@ def runs(text: str, existing: list[Annotation]) -> list[Run]:
         run = Run(text[left:right],
                   bold=any(a.kind == BOLD for a in covering),
                   slot=next((a.slot for a in covering if a.kind == HIGHLIGHT), ""),
-                  comments=[a.note for a in covering if a.kind == COMMENT and a.note])
+                  comments=[a.note for a in covering if a.kind == COMMENT and a.note],
+                  unclear=any(a.kind == UNCLEAR for a in covering))
         # Merge with the previous run when nothing about the formatting changed.
-        if result and (result[-1].bold, result[-1].slot, result[-1].comments) == \
-                      (run.bold, run.slot, run.comments):
+        if result and (result[-1].bold, result[-1].slot, result[-1].comments, result[-1].unclear) == \
+                      (run.bold, run.slot, run.comments, run.unclear):
             result[-1].text += run.text
         else:
             result.append(run)

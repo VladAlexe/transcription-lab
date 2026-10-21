@@ -43,8 +43,12 @@ def preview(text: str, marks: list[an.Annotation], labels: list[str] | None) -> 
             color=an.ink(piece.slot) if piece.slot else t.on_surface(),
             bgcolor=an.colour(piece.slot) if piece.slot else None,
             weight=ft.FontWeight.W_700 if piece.bold else ft.FontWeight.W_400,
-            decoration=ft.TextDecoration.UNDERLINE if piece.comments else None,
-            decoration_color=t.primary(), decoration_style=ft.TextDecorationStyle.DOTTED)
+            italic=piece.unclear,
+            decoration=ft.TextDecoration.UNDERLINE if (piece.comments or piece.unclear) else None,
+            # Unclear wins the underline: it is the one a reader must not miss.
+            decoration_color=t.error() if piece.unclear else t.primary(),
+            decoration_style=(ft.TextDecorationStyle.WAVY if piece.unclear
+                              else ft.TextDecorationStyle.DOTTED))
         spans.append(ft.TextSpan(piece.text, style))
     return ft.Container(ft.Text(spans=spans, selectable=True, size=t.TYPE_SECONDARY,
             color=t.on_surface()),
@@ -119,6 +123,8 @@ def marking_bar(field: ft.TextField, marks: list[an.Annotation], labels: list[st
     controls.extend(swatches)
     comment = icon_button(ft.Icons.ADD_COMMENT_OUTLINED, s.MARK_COMMENT,
                           act(on_comment), size=16, disabled=True)
+    unclear = icon_button(ft.Icons.HELP_OUTLINE, s.MARK_UNCLEAR,
+                          act(on_mark, an.UNCLEAR, ""), size=16, disabled=True)
     # Clear is the one button that must not wait for a selection. Applying a mark rebuilds
     # this panel, which forgets the selection, so the moment a researcher wanted to undo it
     # the button was greyed out and pressing it did nothing at all. With nothing selected it
@@ -126,7 +132,7 @@ def marking_bar(field: ft.TextField, marks: list[an.Annotation], labels: list[st
     clear = icon_button(ft.Icons.FORMAT_CLEAR, s.MARK_CLEAR_ALL if marked else s.MARK_CLEAR,
                         lambda e: on_clear(span["start"], span["end"]), size=16,
                         disabled=not marked)
-    controls.extend([comment, clear])
+    controls.extend([unclear, comment, clear])
 
     def selected(event) -> None:
         selection = getattr(event, "selection", None)
@@ -136,7 +142,7 @@ def marking_bar(field: ft.TextField, marks: list[an.Annotation], labels: list[st
         quote = (getattr(event, "selected_text", "") or "").strip()
         hint.value = f"“{quote}”" if live and quote else s.MARK_HINT
         hint.color = t.on_surface_variant() if live else t.muted()
-        for control in (bold, comment):
+        for control in (bold, unclear, comment):
             control.disabled = not live
         clear.disabled = not (live or marked)
         clear.tooltip = s.MARK_CLEAR if live else s.MARK_CLEAR_ALL

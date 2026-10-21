@@ -84,6 +84,7 @@ def _init_no_sleep(provider, api_key, cancelled=None, *args, **kwargs) -> None:
     provider.retry_attempts = 2
     provider.sleeper = lambda _: None
     provider.clock = lambda: 0.0
+    provider.vocabulary = kwargs.get("vocabulary", ())
 
 
 def _http_error(code: int, message: str = "eroare") -> HTTPError:
@@ -171,7 +172,7 @@ class GladiaTests(_AudioCase):
         self.assertEqual(diarization_config(0), {})
         payload = gladia_payload("https://x/a.m4a", "ro", 5)
         self.assertTrue(payload["diarization"])
-        self.assertEqual(payload["language"], "ro")
+        self.assertEqual(payload["language_config"]["languages"], ["ro"])
         self.assertEqual(payload["diarization_config"]["min_speakers"], 5)
 
     def test_global_speakers_words_and_confidence(self) -> None:
@@ -382,18 +383,19 @@ class DetectLanguageTests(unittest.TestCase):
     """Settings offers "Detect automatically". It is not a language code, and every one of
     these APIs rejects it as one, so each provider has to say detection in its own words."""
 
-    def test_a_named_language_reaches_gladia_exactly_as_before(self) -> None:
-        """The path already in use must not move because the auto path was fixed."""
+    def test_a_named_language_is_enforced_through_language_config(self) -> None:
+        """The v2 schema has no top-level `language`; sent there it was silently ignored."""
         from providers.gladia import request_payload
         self.assertEqual(request_payload("url", "ro"),
-                         {"audio_url": "url", "diarization": True, "language": "ro",
-                          "detect_language": False})
+                         {"audio_url": "url", "diarization": True,
+                          "language_config": {"languages": ["ro"], "code_switching": False}})
 
     def test_gladia_asks_for_detection_instead_of_sending_the_word_auto(self) -> None:
         from providers.gladia import request_payload
         payload = request_payload("url", "auto")
-        self.assertTrue(payload["detect_language"])
+        self.assertEqual(payload["language_config"]["languages"], [])
         self.assertNotIn("language", payload)
+        self.assertNotIn("detect_language", payload)
 
     def test_deepgram_uses_its_own_detection_flag(self) -> None:
         from providers.deepgram import request_params
@@ -408,4 +410,36 @@ class DetectLanguageTests(unittest.TestCase):
 
     def test_an_empty_language_still_falls_back_to_the_default(self) -> None:
         from providers.gladia import request_payload
-        self.assertEqual(request_payload("url", "")["language"], "ro")
+        self.assertEqual(request_payload("url", "")["language_config"]["languages"], ["ro"])
+
+
+class VocabularyTests(unittest.TestCase):
+    """The researcher's list of rare words, sent the way each service asks for it."""
+
+    def test_the_list_is_cleaned_deduplicated_and_capped(self) -> None:
+        from providers.base import vocabulary_terms, VOCABULARY_LIMIT
+        self.assertEqual(vocabulary_terms(" 15minCity, DUT ,\nCluj-Napoca; dut,, "),
+                         ["15minCity", "DUT", "Cluj-Napoca"])
+        self.assertEqual(len(vocabulary_terms(",".join(f"w{i}" for i in range(500)))), VOCABULARY_LIMIT)
+
+    def test_gladia_gets_custom_vocabulary(self) -> None:
+        from providers.gladia import request_payload
+        payload = request_payload("url", "ro", 0, "15minCity, DUT")
+        self.assertTrue(payload["custom_vocabulary"])
+        self.assertEqual(payload["custom_vocabulary_config"], {"vocabulary": ["15minCity", "DUT"]})
+
+    def test_soniox_gets_context_terms(self) -> None:
+        from providers.soniox import request_payload
+        self.assertEqual(request_payload("f", "ro", 0, "15minCity")["context"], {"terms": ["15minCity"]})
+
+    def test_an_empty_list_sends_nothing(self) -> None:
+        from providers.gladia import request_payload as gladia
+        from providers.soniox import request_payload as soniox
+        self.assertNotIn("custom_vocabulary", gladia("url", "ro", 0, ""))
+        self.assertNotIn("context", soniox("f", "ro", 0, ""))
+
+    def test_the_setting_reaches_the_provider(self) -> None:
+        from app_controller import AppController
+        controller = AppController()
+        controller.state.settings.vocabulary = "15minCity"
+        self.assertEqual(controller.build_provider("x").vocabulary, "15minCity")

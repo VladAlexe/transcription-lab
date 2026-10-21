@@ -17,7 +17,8 @@ from models import TranscriptSegment, Word
 from typing import Callable
 
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
-                            TranscriptionProvider, emit_progress, language_code, format_elapsed, merge_turns, whole_file_segment)
+                            TranscriptionProvider, emit_progress, language_code, format_elapsed, merge_turns, vocabulary_terms,
+                            whole_file_segment)
 from providers.http import (JOB_TIMEOUT, POLL_TIMEOUT, RETRY_ATTEMPTS, send, send_json, upload_file, with_retry)
 
 SERVICE = "Gladia"
@@ -40,15 +41,23 @@ def diarization_config(expected_speakers: int) -> dict[str, Any]:
     return {"number_of_speakers": count, "min_speakers": count, "max_speakers": count}
 
 
-def request_payload(audio_url: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0) -> dict[str, Any]:
+def request_payload(audio_url: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0,
+                    vocabulary: Any = ()) -> dict[str, Any]:
     payload: dict[str, Any] = {"audio_url": audio_url, "diarization": True}
     code = language_code(language, DEFAULT_LANGUAGE)
-    # "Detect automatically" is an option in Settings, not a language code. Sent as one it
-    # would reach Gladia as `language: "auto"`, which is not a language it knows.
-    if code is None: payload["detect_language"] = True
-    else: payload["language"] = code; payload["detect_language"] = False
+    # The v2 API takes the language as `language_config`. The older top-level `language` and
+    # `detect_language` are no longer in its schema, so a language sent that way was never
+    # enforced: Gladia guessed, and on a long, noisy interview a guess can drift into another
+    # language for whole passages. One language listed means that language, throughout.
+    # "Detect automatically" is an empty list, never the word "auto".
+    payload["language_config"] = {"languages": [code] if code else [], "code_switching": False}
     config = diarization_config(expected_speakers)
     if config: payload["diarization_config"] = config
+    # Names, places and project terms the model would otherwise spell as something it knows.
+    terms = vocabulary_terms(vocabulary)
+    if terms:
+        payload["custom_vocabulary"] = True
+        payload["custom_vocabulary_config"] = {"vocabulary": terms}
     return payload
 
 
@@ -103,8 +112,8 @@ class GladiaProvider(TranscriptionProvider):
                  poll_interval: float = POLL_INTERVAL, poll_attempts: int = POLL_ATTEMPTS,
                  retry_attempts: int = RETRY_ATTEMPTS,
                  sleeper: Callable[[float], None] = time.sleep,
-                 clock: Callable[[], float] = time.monotonic) -> None:
-        self.api_key = api_key; self.cancelled = cancelled
+                 clock: Callable[[], float] = time.monotonic, vocabulary: Any = ()) -> None:
+        self.api_key = api_key; self.cancelled = cancelled; self.vocabulary = vocabulary
         self.poll_interval = poll_interval; self.poll_attempts = poll_attempts
         self.retry_attempts = retry_attempts
         # Injected so tests can drive a long job without waiting for one.
@@ -122,12 +131,15 @@ class GladiaProvider(TranscriptionProvider):
 
         uploaded = upload_file(SERVICE, f"{API_BASE}/upload", self._headers, path, "audio", None, progress_cb,
                                self.cancelled, "Uploading the recording to Gladia", UPLOAD_SHARE,
-                               "Upload complete. Requesting transcription.",
+                               "Upload sent. Waiting for Gladia to confirm it received the file.",
                                on_retry=self._retry_notice(progress_cb), sleeper=self.sleeper)
         audio_url = uploaded.get("audio_url") or uploaded.get("audio_metadata", {}).get("audio_url")
         if not audio_url: raise ProviderError("Gladia did not return the uploaded file address.")
+        # Only now has the file arrived; the bar used to claim this the moment the last byte
+        # left, and then sat silent through however long the server took to answer.
+        emit_progress(progress_cb, "Gladia has the file. Requesting the transcription.", UPLOAD_SHARE)
 
-        payload = request_payload(str(audio_url), language, expected_speakers)
+        payload = request_payload(str(audio_url), language, expected_speakers, self.vocabulary)
         if "diarization_config" in payload:
             emit_progress(progress_cb, f"Diarization constrained to {expected_speakers} speakers.", None)
         started = with_retry(lambda: send_json(SERVICE, f"{API_BASE}/pre-recorded", self._headers, payload,

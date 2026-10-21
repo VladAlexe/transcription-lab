@@ -118,15 +118,21 @@ def shortcuts(skip_seconds: int) -> tuple[str, ...]:
 
 HELP_SHORTCUTS = ("Ctrl+S — save the correction you are typing, and the project with it.",
                   "Ctrl+Shift+S — save to a different file. Ctrl+O — open one.",
-                  "Ctrl+Enter — save the correction, mark the turn reviewed, open the next "
-                  "unchecked one. Plain Enter never adds a new line to a turn.",
+                  "Ctrl+Enter — save the correction to the file, as Ctrl+S does, mark the turn "
+                  "reviewed and open the next unchecked one. Ctrl+Z takes it back. Plain Enter "
+                  "never adds a new line to a turn.",
                   "Ctrl+W — play or pause. It does nothing else, anywhere, ever.",
                   "F4 does the same, for a foot pedal mapped to a function key.",
                   "Ctrl+Left / Ctrl+Right — {seconds} seconds back or forward, anywhere.",
-                  "Ctrl+Up / Ctrl+Down — the previous or the next turn, anywhere.",
+                  "Ctrl+Up / Ctrl+Down — the previous or the next turn, anywhere. The arrows "
+                  "beside the open turn do the same.",
                   "Space and the plain arrows do the same, but only when no text field "
                   "has focus.",
-                  "Ctrl+P — play the open turn from its start.",
+                  "Ctrl+P — play the open turn from its start. The button beside the "
+                  "crosshair in the player chooses whether playback runs on or stops at the "
+                  "end of each turn.",
+                  "Ctrl+U — mark the selected words as unclear: a wavy underline on screen and "
+                  "in Word, [unclear: …] in plain text.",
                   "Select a phrase, then: Ctrl+B bold, Ctrl+1 / Ctrl+2 / Ctrl+3 / Ctrl+4 highlight, "
                   "Ctrl+D comment on it, Ctrl+0 take the marks off.",
                   "Ctrl+M — add a comment on the whole turn, rather than on a phrase.",
@@ -205,6 +211,7 @@ MODEL_LINE = "Model {model}"
 STAGE_FRAGMENT = "Fragment {current} of {total}"
 STAGE_WHOLE_FILE = "Whole recording, single request"
 ELAPSED = "Elapsed {elapsed}"
+WAITING_SINCE = "{elapsed} · last news {quiet} ago"
 PROGRESS_STAGES = ("Analysis", "Audio preparation", "Transcription", "Merging", "Finishing")
 ACTIVITY_LOG = "Activity log"
 ACTIVITY_LOG_SUBTITLE = "Compact detail for diagnostics"
@@ -252,6 +259,10 @@ MODE_WORDS = "Play by word"
 # Where you are, always on screen: the hard part of a two-hour transcript is knowing that.
 INSPECTOR_POSITION = "Turn {index} of {total}"
 INSPECTOR_LOCATE = "Show this turn in the transcript"
+TURN_PREVIOUS = "Previous turn (Ctrl+Up)"
+TURN_NEXT = "Next turn (Ctrl+Down)"
+TURN_DELETE = "Delete this turn (Ctrl+Z brings it back)"
+TURN_DELETED = "Turn {index} deleted. Ctrl+Z brings it back."
 NOTE_LABEL = "Comment"
 NOTE_HINT = "Exported as a Word comment in the margin, never inside the transcript."
 NOTE_ADD = "Add a comment (Ctrl+M)"
@@ -268,6 +279,8 @@ PLAYER_BACK = "Back {seconds} seconds"
 PLAYER_FORWARD = "Forward {seconds} seconds"
 FOLLOW_ON = "Following the audio — the open turn moves with it"
 FOLLOW_OFF = "Follow the audio: keep the open turn on whatever is playing"
+CONTINUOUS_ON = "Playing straight through. Click to stop at the end of each turn"
+CONTINUOUS_OFF = "Stopping at the end of each turn. Click to play straight through"
 
 # ── Review helpers ────────────────────────────────────────────────────────────
 FIND_REPLACE = "Find and replace"
@@ -376,7 +389,9 @@ CLOSE = "Close"
 DISCARD = "Discard"
 PROCEED = "Continue"
 BUSY_TITLE = "Processing in progress"
-BUSY_BODY = "Cancel the run and wait for the current request to finish."
+CLOSE_WHILE_BUSY = ("A transcription is still running. Closing stops it; nothing has been "
+                    "transcribed yet, so nothing is lost but the time spent.")
+CLOSE_STOP = "Stop and close"
 UNSAVED_TITLE = "Unsaved changes"
 UNSAVED_BODY = "The current project has unsaved changes. Continue anyway?"
 CLOSE_UNSAVED_BODY = ("This project has changes that are not in any file yet. Close anyway and "
@@ -421,6 +436,11 @@ EXPORT_SIGNED_NOBODY = ("Comments in the Word file will be signed “Reviewer”
                         "Put your name in Settings to sign them yourself.")
 SETTINGS_REVIEWER = "Your name"
 SETTINGS_REVIEWER_HINT = "Signs your comments in the exported Word file"
+SETTINGS_VOCABULARY = "Vocabulary"
+SETTINGS_VOCABULARY_HINT = "Names, places, project terms — separated by commas"
+SETTINGS_VOCABULARY_NOTE = ("Sent to Gladia and Soniox so these words are spelled as you write "
+                            "them. Keep it to the rare words the transcript gets wrong: names, "
+                            "places, acronyms. Up to 100.")
 SETTINGS_REVIEWER_NOTE = ("Left blank, comments are signed “Reviewer” and the "
                           "document says nothing about who checked it.")
 DOC_LEGEND = "Highlight key"
@@ -433,6 +453,8 @@ LOG_FILE_ANALYSED = "File analysed."
 LOG_MERGED_CHRONOLOGICALLY = "Transcript merged chronologically."
 LOG_GLOBAL_SPEAKERS = "Speakers were identified across the whole recording."
 LOG_FINISHED = "Transcription finished."
+LOG_CANCELLED = "Transcription cancelled. You can start it again."
+CANCELLED_NOTICE = "Transcription cancelled."
 ERROR_ALREADY_RUNNING = "A transcription is already running."
 ERROR_NO_RECORDING = "Select a valid recording first."
 ERROR_METADATA_MISSING = "Recording metadata is missing."
@@ -445,6 +467,10 @@ SHORTCUT_FAILED = "That shortcut could not be carried out: {detail}"
 MARK_NEEDS_SELECTION = "Select the words first, then mark them."
 MARK_BOLD = "Bold"
 MARK_COMMENT = "Comment on selection"
+MARK_UNCLEAR = "Unclear: words you could not make out (Ctrl+U)"
+DOC_LEGEND_UNCLEAR_SAMPLE = "word"
+DOC_LEGEND_UNCLEAR = "unclear in the recording"
+TXT_UNCLEAR = "[unclear: {text}]"
 MARK_CLEAR = "Clear marks on the selection"
 MARK_CLEAR_ALL = "Clear every mark on this turn"
 MARK_HIGHLIGHT = "Highlight: {label}"
@@ -543,6 +569,7 @@ UNDO_MERGE = "merging {source} into {target}"
 UNDO_CORRECTION = "the correction on turn {index}"
 UNDO_REASSIGN = "moving turn {index} to another speaker"
 UNDO_MARK = "the marking on turn {index}"
+UNDO_DELETE = "deleting turn {index}"
 UNDO_NOTE = "the comment on turn {index}"
 UNDO_CHECKED = "checking turn {index}"
 UNDO_REVIEWED = "reviewing turn {index}"

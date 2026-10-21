@@ -79,6 +79,8 @@ class ControlEnterTests(unittest.TestCase):
                               _last_autosave=0.0, _autosave_pending=False,
                               AUTOSAVE_INTERVAL=main.DesktopApp.AUTOSAVE_INTERVAL)
         app.save_target = lambda: ""
+        app._save_project = noop
+        app.save_quietly = lambda: main.DesktopApp.save_quietly(app)
         app.autosave = lambda force=False: main.DesktopApp.autosave(app, force)
         app.commit_correction = lambda index=None: main.DesktopApp.commit_correction(app, index)
         app.set_checked = lambda index, value: main.DesktopApp.set_checked(app, index, value)

@@ -16,7 +16,9 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
                     on_speed: Callable[[float], None] | None = None,
                     on_skip: Callable[[float], None] | None = None,
                     on_follow: Callable[[], None] | None = None,
-                    following: bool = False) -> ft.Control:
+                    following: bool = False,
+                    on_continuous: Callable[[], None] | None = None,
+                    continuous: bool = True) -> ft.Control:
     """One 56px row: back, play/pause, forward, elapsed, thin scrubber, total, speed.
 
     The two skip buttons sit either side of play/pause, which is where a hand already
@@ -48,6 +50,14 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
                          color=t.primary() if following else t.on_surface_variant(),
                          disabled=on_follow is None)
 
+    # Straight through, or one turn at a time: checking turn by turn wants the audio to stop
+    # where the turn does, so the next press of play is the next turn.
+    through = icon_button(ft.Icons.PLAYLIST_PLAY if continuous else ft.Icons.STOP_CIRCLE_OUTLINED,
+                          s.CONTINUOUS_ON if continuous else s.CONTINUOUS_OFF,
+                          (lambda e: on_continuous()) if on_continuous else None, size=18,
+                          color=t.on_surface_variant() if continuous else t.primary(),
+                          disabled=on_continuous is None)
+
     scrubber = ft.Slider(min=0, max=float(total or 1), value=float(position),
                          disabled=not ready or not total, expand=True,
                          active_color=t.primary(), inactive_color=t.outline(),
@@ -67,6 +77,7 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
                         on_select=lambda e: on_speed(float(e.control.value)) if on_speed else None)
     if refs is not None:
         refs["player_follow"] = follow
+        refs["player_continuous"] = through
         refs["player_back"] = back
         refs["player_forward"] = forward
         refs["player_button"] = button
@@ -75,7 +86,7 @@ def audio_transport(player: AudioPlayer, refs: dict | None = None,
         refs["player_duration"] = duration
 
     return ft.Container(
-        ft.Row([back, button, forward, elapsed, scrubber, duration, follow, speed],
+        ft.Row([back, button, forward, elapsed, scrubber, duration, follow, through, speed],
                spacing=t.S8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         height=t.PLAYER_BAR_HEIGHT, padding=ft.Padding(t.S16, 0, t.S16, 0),
         bgcolor=t.chrome(),

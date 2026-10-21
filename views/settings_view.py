@@ -117,6 +117,12 @@ def build(state: AppState, on_apply: Callable[..., None], on_choose_tools: Calla
     # Who is reviewing. It signs the comments in the Word file and is printed above the
     # transcript, so a document handed to a colleague says whose corrections it carries.
     reviewer = field(settings.reviewer, hint_text=s.SETTINGS_REVIEWER_HINT)
+    vocabulary = syncing(ft.TextField(value=settings.vocabulary, multiline=True, min_lines=2,
+                         max_lines=5, shift_enter=True, hint_text=s.SETTINGS_VOCABULARY_HINT,
+                         border_radius=t.RADIUS, border_color=t.outline(),
+                         focused_border_color=t.primary(), border_width=1,
+                         focused_border_width=1, color=t.on_surface(), text_size=t.TYPE_BODY,
+                         content_padding=ft.Padding(t.S12, t.S8, t.S12, t.S8)))
     swatches = ft.ResponsiveRow([
         ft.Row([ft.Container(width=18, height=18, bgcolor=an.colour(slot), border_radius=t.R_SM,
                     border=ft.Border.all(t.HAIRLINE, t.outline())), box],
@@ -137,7 +143,9 @@ def build(state: AppState, on_apply: Callable[..., None], on_choose_tools: Calla
         ft.Text(s.KEY_HELPER, size=t.TYPE_META, color=t.muted()),
         ft.ResponsiveRow([labelled(s.SETTINGS_LANGUAGE, language, HALF),
                           labelled(s.SETTINGS_EXPECTED_SPEAKERS, speakers, HALF)],
-                         spacing=t.S12, run_spacing=t.S12)]
+                         spacing=t.S12, run_spacing=t.S12),
+        labelled(s.SETTINGS_VOCABULARY, vocabulary),
+        ft.Text(s.SETTINGS_VOCABULARY_NOTE, size=t.TYPE_META, color=t.muted())]
     if active.needs_endpoint:
         transcription.append(ft.ResponsiveRow(
             [labelled(s.SETTINGS_ENDPOINT_URL, base_url, HALF),
@@ -192,7 +200,7 @@ def build(state: AppState, on_apply: Callable[..., None], on_choose_tools: Calla
                  language.value, speakers.value or "0", base_url.value or "",
                  model.value or "", rewind.value, rewind_seconds.value or "1.5",
                  text_size.value or "1.0", [(box.value or "").strip() for box in highlights],
-                 reviewer.value or "")
+                 reviewer.value or "", vocabulary.value or "")
 
     body = ft.Column(groups, spacing=t.S24, tight=True,
                      horizontal_alignment=ft.CrossAxisAlignment.STRETCH)

@@ -20,8 +20,17 @@ import subprocess
 Update = Callable[[str,float|None],None]
 
 
+class Cancelled(RuntimeError):
+    """The run was cancelled, or overtaken by a newer one; nothing it produced is kept."""
+
+
 class AppController:
-    def __init__(self,state:AppState|None=None): self.state=state or AppState(); self._lock=threading.Lock()
+    def __init__(self,state:AppState|None=None):
+        self.state=state or AppState(); self._lock=threading.Lock()
+        # Each run has a number. Cancel moves the number on, which releases the interface at
+        # once; the abandoned run notices at its next step and stops, and if it was stuck
+        # waiting on a server it can no longer write anything over the run that replaced it.
+        self._run=0
 
     def select_recording(self,path:str) -> AudioInfo:
         # A new recording is a new project. Without this the previous project's file stayed
@@ -40,16 +49,17 @@ class AppController:
         if step==3:return bool(self.state.transcript_segments)
         return True
 
-    def build_provider(self,output_dir:str) -> TranscriptionProvider:
-        state=self.state; settings=state.settings; cancelled=lambda:state.cancellation_flag
+    def build_provider(self,output_dir:str,cancelled:Callable[[],bool]|None=None) -> TranscriptionProvider:
+        state=self.state; settings=state.settings; cancelled=cancelled or (lambda:state.cancellation_flag)
         if settings.provider==OpenAIDiarizeProvider.info.key:
             return OpenAIDiarizeProvider(state.api_key,output_dir,state.media_tools,settings.safe_chunk_mb,
                 settings.fallback_bitrate_kbps,settings.overlap_seconds,not settings.preserve_original,cancelled)
         if settings.provider==DeepgramProvider.info.key: return DeepgramProvider(state.deepgram_api_key,cancelled)
-        if settings.provider==SonioxProvider.info.key: return SonioxProvider(state.soniox_api_key,cancelled)
+        if settings.provider==SonioxProvider.info.key:
+            return SonioxProvider(state.soniox_api_key,cancelled,vocabulary=settings.vocabulary)
         if settings.provider==OpenAICompatibleProvider.info.key:
             return OpenAICompatibleProvider(state.compatible_api_key,state.compatible_base_url,state.compatible_model,cancelled)
-        return GladiaProvider(state.gladia_api_key,cancelled)
+        return GladiaProvider(state.gladia_api_key,cancelled,vocabulary=settings.vocabulary)
 
     def selected_range(self) -> TimeRange | None:
         start,end=self.state.range_start,self.state.range_end
@@ -89,14 +99,22 @@ class AppController:
             if not self.state.active_api_key.strip(): raise RuntimeError(provider_info(self.state.settings.provider).missing_key)
             if not self.state.selected_file_metadata: raise RuntimeError(s.ERROR_NO_RECORDING)
             self.state.processing=True; self.state.cancellation_flag=False; self.state.error_state=None
+            self._run+=1; run=self._run
+        current=lambda:run==self._run
+        stopped=lambda:not current()
+        def report(message:str,fraction:float|None)->None:
+            # A run that has been cancelled stops at its next word to the interface.
+            if stopped(): raise Cancelled(s.LOG_CANCELLED)
+            update(message,fraction)
         try:
             self.state.cleanup_temporary(); self.state.temporary_directory=tempfile.TemporaryDirectory(prefix="transcriere_")
             info=self.state.selected_file_metadata; settings=self.state.settings
-            provider=self.build_provider(self.state.temporary_directory.name)
+            provider=self.build_provider(self.state.temporary_directory.name,stopped)
             # Only the chosen portion is sent to the provider; the original is untouched.
-            source_path,offset=self.prepare_source(info,self.state.temporary_directory.name,update,
+            source_path,offset=self.prepare_source(info,self.state.temporary_directory.name,report,
                 provider.info.uploads_whole_file)
-            segments=provider.transcribe(source_path,settings.language,settings.expected_speakers,update)
+            segments=provider.transcribe(source_path,settings.language,settings.expected_speakers,report)
+            if stopped(): raise Cancelled(s.LOG_CANCELLED)
             # The times that come back are relative to the clip, so they are re-anchored
             # onto the original recording.
             shift_segments(segments,offset)
@@ -112,10 +130,26 @@ class AppController:
             self.state.current_workflow_step=2; self.state.transcription_progress=1; self.state.dirty=True
             self.state.activity_log.append(s.LOG_MERGED_CHRONOLOGICALLY if self.state.generated_chunks else s.LOG_GLOBAL_SPEAKERS)
             update(s.LOG_FINISHED,1.0)
-        except Exception as exc: self.state.error_state=str(exc); raise
-        finally: self.state.processing=False
+        except Cancelled: raise
+        except Exception as exc:
+            # Whatever a cancelled run fails with afterwards is the cancellation, not news.
+            if stopped(): raise Cancelled(s.LOG_CANCELLED) from exc
+            self.state.error_state=str(exc); raise
+        finally:
+            if current(): self.state.processing=False
 
-    def cancel(self)->None: self.state.cancellation_flag=True
+    def cancel(self)->bool:
+        """Stop the running transcription now, as far as the interface is concerned.
+
+        The request in flight may take minutes to come back, or never; the researcher does
+        not wait for it. True if there was a run to stop.
+        """
+        with self._lock:
+            if not self.state.processing: return False
+            self.state.cancellation_flag=True; self._run+=1
+            self.state.processing=False; self.state.transcription_progress=0
+            self.state.activity_log.append(s.LOG_CANCELLED)
+        return True
 
     def map_speaker(self,speaker_id:str,name:str)->None:
         mapping=self.state.speaker_mapping
@@ -213,6 +247,23 @@ class AppController:
         self.state.history.record(s.UNDO_MARK.format(index=index+1),
             lambda item=segment,value=was_marked:setattr(item,"annotations",value))
         segment.annotations=remaining; self.state.dirty=True
+        return True
+
+    def delete_segment(self,index:int)->bool:
+        """Take one turn out of the transcript. Undo puts the same turn back where it was."""
+        segments=self.state.transcript_segments
+        if not (0<=index<len(segments)): return False
+        item=segments[index]; last=self.state.last_reviewed_index
+        def restore(item=item,position=index,last=last)->None:
+            current=self.state.transcript_segments
+            current.insert(min(position,len(current)),item); self.state.last_reviewed_index=last
+        self.state.history.record(s.UNDO_DELETE.format(index=index+1),restore)
+        del segments[index]
+        if last is not None:
+            self.state.last_reviewed_index=None if last==index else (last-1 if last>index else last)
+        # Find-and-replace remembers its changes by position, which has just moved.
+        self.state.last_replacement=None
+        self.state.dirty=True
         return True
 
     # ── Who said this ────────────────────────────────────────────────────

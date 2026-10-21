@@ -8,7 +8,7 @@ import strings as s
 from speaker_reconciliation import apply_speaker_mapping
 from transcription import MODEL
 
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.2.5"
 
 
 def format_timestamp(seconds: float) -> str:
@@ -16,11 +16,20 @@ def format_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def plain_text(item: TranscriptSegment) -> str:
+    """The turn as plain text. Words marked unclear keep their doubt, in brackets, since
+    plain text has no underline to carry it."""
+    marks=getattr(item,"annotations",None) or []
+    if not any(a.kind==an.UNCLEAR for a in marks): return item.text
+    return "".join(s.TXT_UNCLEAR.format(text=piece.text) if piece.unclear else piece.text
+                   for piece in an.runs(item.text,marks))
+
+
 def readable_transcript(segments: list[TranscriptSegment], mapping: dict[str,str], timestamps: bool=True) -> str:
     blocks=[]
     for item in sorted(segments,key=lambda s:(s.absolute_start,s.absolute_end,s.chunk_index)):
         stamp=f" [{format_timestamp(item.absolute_start)}–{format_timestamp(item.absolute_end)}]" if timestamps else ""
-        blocks.append(f"{apply_speaker_mapping(item,mapping)}{stamp}\n{item.text}")
+        blocks.append(f"{apply_speaker_mapping(item,mapping)}{stamp}\n{plain_text(item)}")
     return "\n\n".join(blocks)
 
 
@@ -83,15 +92,22 @@ def _paint(run: Any, slot: str) -> None:
     run.font.color.rgb=RGBColor.from_string(ink)
 
 
+def _mark_unclear(run: Any) -> None:
+    """Italic with a wavy underline: the same "doubtful" the screen shows."""
+    from docx.enum.text import WD_UNDERLINE
+    run.italic=True; run.font.underline=WD_UNDERLINE.WAVY
+
+
 def _legend(document: Any, segments: list[TranscriptSegment], labels: list[str] | None) -> None:
     """Say what the highlight colours mean, but only for the ones actually used.
 
     A colour code is only a code if the reader is told the key. Printing all four when the
     transcript uses one would be noise, so the legend lists what is on the page.
     """
-    used={a.slot for item in segments for a in getattr(item,"annotations",None) or []
-          if a.kind==an.HIGHLIGHT and a.slot in an.HIGHLIGHTS}
-    if not used: return
+    marks=[a for item in segments for a in getattr(item,"annotations",None) or []]
+    used={a.slot for a in marks if a.kind==an.HIGHLIGHT and a.slot in an.HIGHLIGHTS}
+    unclear=any(a.kind==an.UNCLEAR for a in marks)
+    if not used and not unclear: return
     from docx.shared import Pt
     names=list(labels or [])
     line=document.add_paragraph(); line.add_run(f"{s.DOC_LEGEND}: ").bold=True
@@ -101,6 +117,10 @@ def _legend(document: Any, segments: list[TranscriptSegment], labels: list[str] 
         index=int(slot)-1
         label=names[index] if index < len(names) and (names[index] or "").strip() else               s.DOC_LEGEND_UNNAMED.format(number=slot)
         line.add_run(f" {label}").font.size=Pt(10)
+    if unclear:
+        if used: line.add_run("   ")
+        sample=line.add_run(s.DOC_LEGEND_UNCLEAR_SAMPLE); _mark_unclear(sample); sample.font.size=Pt(10)
+        line.add_run(f" {s.DOC_LEGEND_UNCLEAR}").font.size=Pt(10)
 
 
 def _page_number(paragraph: Any) -> None:
@@ -152,6 +172,7 @@ def make_docx(info: AudioInfo, segments: list[TranscriptSegment], mapping: dict[
                 run=body.add_run(piece.text)
                 if piece.bold: run.bold=True
                 if piece.slot in an.HIGHLIGHTS: _paint(run,piece.slot)
+                if piece.unclear: _mark_unclear(run)
                 for text in piece.comments: anchored.append((run,text))
             author=comment_author or s.DOC_COMMENT_AUTHOR
             for run,text in anchored:

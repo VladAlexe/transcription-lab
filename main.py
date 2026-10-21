@@ -8,7 +8,7 @@ import design_tokens as t
 import annotations as an
 from audio_player import AudioPlayer
 import strings as s
-from app_controller import AppController
+from app_controller import AppController,Cancelled
 from app_state import DEFAULT_HIGHLIGHT_LABELS,ExportMetadata
 import layout_audit
 from components.app_shell import Layout,app_shell,measure
@@ -34,7 +34,7 @@ from theme import application_theme
 from time_range import TimeRangeError,resolve
 import window_icon
 from flet.controls.core.text import TextSelection
-from utils import human_size,load_preferences,save_preferences
+from utils import append_log,human_size,load_preferences,save_preferences
 from views import export_view,recording_view,settings_view,speakers_view,transcription_view,welcome_view
 
 
@@ -51,6 +51,10 @@ class DesktopApp:
         self.words_mode=False;self.show_original=False;self.note_open=False
         # The open turn tracks the audio unless the researcher turns it off.
         self.follow_playback=True
+        # Straight through, or stop where each turn ends. `_stopped_turn` is the turn it last
+        # stopped at, so pressing play again carries on instead of stopping on the spot.
+        self.continuous_play=bool(self.preferences.get("continuous_play",True))
+        self._stopped_turn:int|None=None
         # Marking a turn writes the project back, throttled so holding Ctrl+Enter down
         # cannot turn a 3 MB write into a stutter on every turn.
         self._last_autosave=0.0;self._autosave_pending=False;self._save_lock=threading.Lock()
@@ -86,6 +90,7 @@ class DesktopApp:
             # its default rather than starting blank.
             settings.highlight_labels=an.pad_labels(stored,DEFAULT_HIGHLIGHT_LABELS)
         settings.reviewer=str(self.preferences.get("reviewer","") or "")[:80]
+        settings.vocabulary=str(self.preferences.get("vocabulary","") or "")[:8000]
         self.apply_rewind()
         # Everything above is reading a small JSON file. Resolving the media tools is not: it
         # runs ffmpeg and ffprobe and waits for them, which on a cold start (or with an
@@ -191,7 +196,12 @@ class DesktopApp:
         """
         state=self.controller.state
         if state.processing:
-            message_dialog(self.page,s.BUSY_TITLE,s.BUSY_BODY);return
+            # Refusing to close left no way out of a run stuck on a server short of the Task
+            # Manager. Now it asks, and stopping is one click.
+            def stop_and_close()->None:
+                self.controller.cancel();append_log("cancelled by closing");self.request_close()
+            confirm_dialog(self.page,s.BUSY_TITLE,s.CLOSE_WHILE_BUSY,stop_and_close,s.CLOSE_STOP)
+            return
         self.commit_correction();self.autosave(force=True)
         if state.dirty and state.transcript_segments:
             confirm_dialog(self.page,s.UNSAVED_TITLE,s.CLOSE_UNSAVED_BODY,self._close_now,s.CLOSE_ANYWAY)
@@ -282,6 +292,7 @@ class DesktopApp:
         state=self.controller.state
         if state.current_workflow_step!=2 or self.show_settings or self.show_home: return
         found=playback_sync.locate(state.transcript_segments,position_ms/1000.0)
+        self._stop_at_turn_end(found,position_ms)
         if found==self.active: return
         previous,self.active=self.active,found
         rows=self.refs.get("rows") or {}
@@ -322,6 +333,33 @@ class DesktopApp:
             host.content=self.build_inspector(index)
             touched.append(host)
         if not self._safe_update(*touched): self.render()
+
+    def _stop_at_turn_end(self,found:playback_sync.Position,position_ms:int)->None:
+        """One turn at a time: pause where the playing turn ends.
+
+        Also when playback crosses into the next turn without reaching the end of this one,
+        which is what overlapping turns do. The turn stopped at is remembered so that play
+        carries on into the next turn rather than stopping again where it stands.
+        """
+        if self.continuous_play or not self.player.playing or found.turn is None: return
+        segments=self.controller.state.transcript_segments
+        if found.turn>=len(segments): return
+        ended=found.turn!=self._stopped_turn and position_ms/1000.0>=segments[found.turn].absolute_end
+        crossed=(self.active.turn is not None and found.turn>self.active.turn
+                 and self.active.turn!=self._stopped_turn)
+        if not (ended or crossed): return
+        self._stopped_turn=found.turn if ended else self.active.turn
+        self.player.toggle()
+
+    def toggle_continuous(self)->None:
+        self.continuous_play=not self.continuous_play;self._stopped_turn=None
+        self.preferences["continuous_play"]=self.continuous_play;save_preferences(self.preferences)
+        button=self.refs.get("player_continuous")
+        if button is None: self.render();return
+        button.icon=ft.Icons.PLAYLIST_PLAY if self.continuous_play else ft.Icons.STOP_CIRCLE_OUTLINED
+        button.tooltip=s.CONTINUOUS_ON if self.continuous_play else s.CONTINUOUS_OFF
+        button.icon_color=t.on_surface_variant() if self.continuous_play else t.primary()
+        if not self._safe_update(button): self.render()
 
     def toggle_follow(self)->None:
         self.follow_playback=not self.follow_playback
@@ -451,7 +489,8 @@ class DesktopApp:
             self.show_original,self.toggle_show_original,self.locate_open_turn,
             self.set_note,self.note_open,self.toggle_note,
             self.mark_selection,self.comment_on_selection,self.clear_marks,self.drop_mark,
-            self.controller.state.settings.highlight_labels)
+            self.controller.state.settings.highlight_labels,
+            self.step_turn,self.delete_turn)
 
     # ── Marking a phrase ─────────────────────────────────────────────────────
     # Bold, one of three highlighters, and a comment on the selected words. All three reach
@@ -658,6 +697,10 @@ class DesktopApp:
         # they come back together rather than leaving the transcript half restored.
         with state.history.group(s.UNDO_REVIEWED.format(index=index+1)):
             self.set_checked(index,True)
+        # Written now, as Ctrl+S would, rather than whenever the autosave next gets round to
+        # it. Quietly: a notice on every turn of a pass would be noise. Undo is untouched by
+        # this — the history lives in memory, and Ctrl+Z still takes the step back.
+        self.save_quietly()
         following=review_progress.next_unchecked(state.transcript_segments,index)
         if following is None:
             notification(self.page,s.REVIEW_DONE);return
@@ -839,6 +882,7 @@ class DesktopApp:
             elif letter=="j": self.locate_open_turn()
             elif letter=="p": self.play_segment(self.selected_segment) if self.selected_segment is not None else None
             elif letter=="r": self.resume_review() if self.resume_target() is not None else None
+            elif letter=="u": self.mark_from_keyboard(annotations_kind=an.UNCLEAR)
             return
 
         # Everything below is a character a text field would want, so it yields to typing.
@@ -881,6 +925,7 @@ class DesktopApp:
 
     def skip_audio(self,delta_seconds:float)->None:
         """Ten seconds back is the single most used control when checking a word."""
+        self._stopped_turn=None
         self.player.skip(delta_seconds)
 
     def step_turn(self,delta:int)->None:
@@ -894,6 +939,7 @@ class DesktopApp:
         self.reveal_turn(target)
 
     def seek_to(self,seconds:float)->None:
+        self._stopped_turn=None
         self.player.seek(seconds)
 
     def refresh_transport(self)->None:
@@ -990,7 +1036,7 @@ class DesktopApp:
             workspace=recording_view.build(state,self.choose_file,self.remove_file,lambda:self.navigate(1),
                 self.set_quality,self.set_range,layout.content,self.open_project,self.open_settings)
         elif state.current_workflow_step==1:
-            workspace=transcription_view.build(state,self.begin_transcription,self.controller.cancel,self.elapsed())
+            workspace=transcription_view.build(state,self.begin_transcription,self.cancel_transcription,self.elapsed())
         elif state.current_workflow_step==2:
             # The open turn is the right-hand pane, kept in a host container so an edit can
             # rebuild it alone without touching the transcript or its scroll position.
@@ -1028,7 +1074,8 @@ class DesktopApp:
         print(layout_audit.report(self.screen_name(),layout.content,workspace),flush=True)
         # The transport belongs to the review screen only, and sits below it as a footer.
         footer=audio_transport(self.player,self.refs,self.set_speed,self.skip_audio,
-            self.toggle_follow,self.follow_playback) if fills else None
+            self.toggle_follow,self.follow_playback,self.toggle_continuous,
+            self.continuous_play) if fills else None
         floating=self.overlays(layout) if fills else []
         # Whatever cannot take a column floats, on its own solid surface with its own way
         # out — and `pane_placement` has already guaranteed that at most one of them does,
@@ -1071,7 +1118,15 @@ class DesktopApp:
 
     def elapsed(self)->str:
         if not self.started_at:return "00:00"
-        seconds=int(time.monotonic()-self.started_at);return f"{seconds//60:02d}:{seconds%60:02d}"
+        def clock(seconds:float)->str:
+            seconds=int(seconds);return f"{seconds//60:02d}:{seconds%60:02d}"
+        now=time.monotonic();total=clock(now-self.started_at)
+        # Past twenty seconds of silence, say how long it has been: that is the number that
+        # tells waiting on a slow server apart from something having gone wrong.
+        quiet=now-(getattr(self,"_last_news",None) or now)
+        if self.controller.state.processing and quiet>=20:
+            return s.WAITING_SINCE.format(elapsed=total,quiet=clock(quiet))
+        return total
 
     def _safe_update(self,*controls:ft.Control|None)->bool:
         """Update the given controls in place; report failure so the caller can fall back."""
@@ -1209,8 +1264,9 @@ class DesktopApp:
                 try:
                     self.wait_for_tools()
                     self.controller.select_recording(files[0].path);self.controller.set_range(None,None)
-                    self.player.bind(self.controller.state.audio_path);self.render()
-                except Exception as exc:error_notification(self.page,str(exc))
+                    self.player.bind(self.controller.state.audio_path);self.render_soon()
+                except Exception as exc:
+                    message=str(exc);self.on_loop(lambda:error_notification(self.page,message))
             self.page.run_thread(worker)
     def choose_file(self)->None:self.page.run_task(self._choose_file)
 
@@ -1245,14 +1301,70 @@ class DesktopApp:
 
     # ── Transcription ────────────────────────────────────────────────────────
     def begin_transcription(self,key:str)->None:
-        self.controller.state.set_active_api_key(key);self.started_at=time.monotonic()
+        self.controller.state.set_active_api_key(key);self.started_at=self._last_news=time.monotonic()
+        state=self.controller.state
+        info=state.selected_file_metadata
+        append_log(f"start · provider={state.settings.provider} · file={info.filename if info else '-'} "
+                   f"· {human_size(info.size_bytes) if info else '-'} · {info.duration if info else 0:.0f}s")
         def update(message:str,progress:float|None)->None:
-            if progress is not None:self.controller.state.transcription_progress=progress
-            self.controller.state.activity_log.append(message);self.render()
+            self._last_news=time.monotonic()
+            append_log(f"{'' if progress is None else f'{progress*100:3.0f}% '}{message}")
+            if progress is not None:state.transcription_progress=progress
+            state.activity_log.append(message);self.render_soon()
         def worker()->None:
-            try:self.controller.start_transcription(update);self.render()
-            except Exception as exc:error_notification(self.page,str(exc));self.render()
+            try:self.controller.start_transcription(update);append_log("finished");self.render_soon()
+            except Cancelled:append_log("abandoned run stopped")
+            except Exception as exc:
+                append_log(f"FAILED · {type(exc).__name__}: {exc}")
+                message=str(exc)
+                self.on_loop(lambda:(error_notification(self.page,message),self.render()))
         self.page.run_thread(worker);self.render()
+        self.page.run_task(self._transcription_heartbeat)
+
+    def cancel_transcription(self)->None:
+        """Cancel answers at once. It used to raise a flag the run read only between
+        requests, so with a request hanging the button did nothing anyone could see."""
+        if self.controller.cancel():
+            append_log("cancelled by the user")
+            notification(self.page,s.CANCELLED_NOTICE)
+        self.render()
+
+    def on_loop(self,action)->None:
+        """Run `action` on the interface's own loop. For worker threads only.
+
+        Click handlers run on that loop. A worker that rebuilt the page itself did so at the
+        same moment as the loop handling a click, on one shared tree of controls — which can
+        leave the screen drawn but no longer answering, every button dead.
+        """
+        async def run()->None:
+            try: action()
+            except Exception as exc: print(f"[ui] {type(exc).__name__}: {exc}",flush=True)
+        try: self.page.run_task(run)
+        except Exception as exc: print(f"[ui] cannot schedule: {exc}",flush=True)
+
+    def render_soon(self)->None:
+        """A full redraw requested from a worker: done on the loop, and only once however
+        many messages arrive before it gets there."""
+        if getattr(self,"_render_queued",False): return
+        self._render_queued=True
+        def draw()->None:
+            self._render_queued=False;self.render()
+        self.on_loop(draw)
+
+    async def _transcription_heartbeat(self)->None:
+        """Keep the clock moving while the provider is silent.
+
+        The screen used to redraw only when a message arrived, so a server taking minutes to
+        answer looked exactly like a frozen application: the same line, the same percentage,
+        and an elapsed time that had stopped too.
+        """
+        import asyncio
+        await asyncio.sleep(1)
+        while self.controller.state.processing:
+            if self.controller.state.current_workflow_step==1 and not (self.show_settings or self.show_home):
+                try:self.render()
+                except Exception as exc:print(f"[heartbeat] {exc}",flush=True)
+            await asyncio.sleep(1)
 
     # ── Speakers ─────────────────────────────────────────────────────────────
     def map_speaker(self,speaker:str,name:str)->None:
@@ -1292,6 +1404,16 @@ class DesktopApp:
         self.render()
         notification(self.page,s.MERGE_DONE.format(count=moved,target=name))
         self.autosave()
+    def delete_turn(self,index:int)->None:
+        """Take a turn out of the transcript; the open turn becomes the one after it."""
+        if not self.controller.delete_segment(index): return
+        segments=self.controller.state.transcript_segments
+        self.selected_segment=min(index,len(segments)-1) if segments else None
+        self.active=playback_sync.Position()
+        self.render()
+        notification(self.page,s.TURN_DELETED.format(index=index+1))
+        self.autosave()
+
     def close_inspector(self)->None:
         self.keep_edit();self.selected_segment=None;self.render()
 
@@ -1303,7 +1425,8 @@ class DesktopApp:
         previous=self.selected_segment;self.selected_segment=index
         segments=self.controller.state.transcript_segments
         # Clicking a turn positions the player on its exact start.
-        if self.player.ready and index<len(segments): self.player.seek(segments[index].absolute_start)
+        if self.player.ready and index<len(segments):
+            self._stopped_turn=None;self.player.seek(segments[index].absolute_start)
         # Opening the sheet takes width away from the body, so that transition rebuilds.
         layout=self.refs.get("layout")
         if layout is not None and not layout.docked_inspector and previous is None:
@@ -1346,6 +1469,7 @@ class DesktopApp:
         if index>=len(segments): return
         if not self.player.ready:
             error_notification(self.page,s.AUDIO_MISSING_TITLE);return
+        self._stopped_turn=None
         self.player.seek(segments[index].absolute_start)
 
     # ── Export and projects ──────────────────────────────────────────────────
@@ -1387,6 +1511,19 @@ class DesktopApp:
         notification(self.page,s.SAVED_TO.format(name=Path(target).name))
         self._refresh_status()
         self._refresh_save_button()
+
+    def save_quietly(self)->None:
+        """Write the project to its file now, without a notice; ask where only if it has none."""
+        target=self.save_target()
+        if not target:
+            if self.controller.state.dirty: self.page.run_task(self._save_project)
+            return
+        try:
+            with self._save_lock: self.controller.save_project(target)
+        except Exception as exc:
+            error_notification(self.page,str(exc));return
+        self._autosave_pending=False;self._last_autosave=time.monotonic()
+        self._refresh_status()
 
     def save_project_as(self)->None:
         """Ctrl+Shift+S: the way to a different file once one is remembered."""
@@ -1438,7 +1575,8 @@ class DesktopApp:
                        auto_rewind:bool|None=None,rewind_seconds:str|float|None=None,
                        type_scale:str|float|None=None,
                        highlight_labels:list[str]|None=None,
-                       reviewer:str|None=None)->None:
+                       reviewer:str|None=None,
+                       vocabulary:str|None=None)->None:
         state=self.controller.state;settings=state.settings
         settings.appearance=appearance;settings.safe_chunk_mb=max(5,min(size,23))
         settings.fallback_bitrate_kbps=max(24,min(bitrate,128));settings.overlap_seconds=max(0,min(overlap,60))
@@ -1462,11 +1600,13 @@ class DesktopApp:
             # wherever the name is shown, so clearing a name is allowed rather than punished.
             settings.highlight_labels=an.pad_labels(highlight_labels)
         if reviewer is not None: settings.reviewer=str(reviewer).strip()[:80]
+        if vocabulary is not None: settings.vocabulary=str(vocabulary).strip()[:8000]
         self.apply_rewind()
         self.preferences.update({"appearance":appearance,"media_tool_path":settings.user_media_tool_path,
             "provider":settings.provider,"language":settings.language,"expected_speakers":settings.expected_speakers,
             "auto_rewind_enabled":settings.auto_rewind_enabled,"auto_rewind_seconds":settings.auto_rewind_seconds,
-            "type_scale":settings.type_scale,"highlight_labels":settings.highlight_labels,"reviewer":settings.reviewer})
+            "type_scale":settings.type_scale,"highlight_labels":settings.highlight_labels,"reviewer":settings.reviewer,
+            "vocabulary":settings.vocabulary})
         save_preferences(self.preferences)
         self.page.theme_mode={"light":ft.ThemeMode.LIGHT,"dark":ft.ThemeMode.DARK,"system":ft.ThemeMode.SYSTEM}.get(appearance,ft.ThemeMode.LIGHT)
         self.show_settings=False;self.render()

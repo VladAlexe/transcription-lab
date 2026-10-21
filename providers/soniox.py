@@ -19,7 +19,7 @@ from typing import Callable
 
 from providers.base import (CancelCallback, ProgressCallback, ProviderCapabilities, ProviderError, ProviderInfo,
                             TranscriptionProvider, emit_progress, format_elapsed, group_by_speaker,
-                            language_code)
+                            language_code, vocabulary_terms)
 from providers.http import (JOB_TIMEOUT, POLL_TIMEOUT, RETRY_ATTEMPTS, send, send_json, upload_file, with_retry)
 
 SERVICE = "Soniox"
@@ -33,7 +33,8 @@ POLL_INTERVAL = 5.0
 POLL_ATTEMPTS = 2160  # ~3 hours at a 5 second interval
 
 
-def request_payload(file_id: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0) -> dict[str, Any]:
+def request_payload(file_id: str, language: str = DEFAULT_LANGUAGE, expected_speakers: int = 0,
+                    vocabulary: Any = ()) -> dict[str, Any]:
     payload: dict[str, Any] = {"file_id": file_id, "model": MODEL, "enable_speaker_diarization": True}
     # Soniox detects the language when it is given no hint; "auto" as a hint is not a
     # language and would only narrow the search to a code that does not exist.
@@ -41,6 +42,9 @@ def request_payload(file_id: str, language: str = DEFAULT_LANGUAGE, expected_spe
     if code: payload["language_hints"] = [code]
     # Soniox works the speaker count out for itself; the value stays a hint, as with Deepgram.
     if expected_speakers and expected_speakers > 1: payload["num_speakers"] = int(expected_speakers)
+    # Spelling and casing of the words the model does not know: names, places, project terms.
+    terms = vocabulary_terms(vocabulary)
+    if terms: payload["context"] = {"terms": terms}
     return payload
 
 
@@ -82,8 +86,8 @@ class SonioxProvider(TranscriptionProvider):
                  poll_interval: float = POLL_INTERVAL, poll_attempts: int = POLL_ATTEMPTS,
                  retry_attempts: int = RETRY_ATTEMPTS,
                  sleeper: Callable[[float], None] = time.sleep,
-                 clock: Callable[[], float] = time.monotonic) -> None:
-        self.api_key = api_key; self.cancelled = cancelled
+                 clock: Callable[[], float] = time.monotonic, vocabulary: Any = ()) -> None:
+        self.api_key = api_key; self.cancelled = cancelled; self.vocabulary = vocabulary
         self.poll_interval = poll_interval; self.poll_attempts = poll_attempts
         self.retry_attempts = retry_attempts
         self.sleeper = sleeper; self.clock = clock
@@ -107,13 +111,17 @@ class SonioxProvider(TranscriptionProvider):
 
         uploaded = upload_file(SERVICE, f"{API_BASE}/files", self._headers, path, "file", None, progress_cb,
                                self.cancelled, "Uploading the recording to Soniox", UPLOAD_SHARE,
-                               "Upload complete. Requesting transcription.",
+                               "Upload sent. Waiting for Soniox to confirm it received the file.",
                                on_retry=self._retry_notice(progress_cb), sleeper=self.sleeper)
         file_id = uploaded.get("id") or uploaded.get("file_id")
         if not file_id: raise ProviderError("Soniox did not return an uploaded file identifier.")
+        # Only now has the file arrived; the bar used to claim this the moment the last byte
+        # left, and then sat silent through however long the server took to answer.
+        emit_progress(progress_cb, "Soniox has the file. Requesting the transcription.", UPLOAD_SHARE)
 
         started = with_retry(lambda: send_json(SERVICE, f"{API_BASE}/transcriptions", self._headers,
-                                               request_payload(str(file_id), language, expected_speakers),
+                                               request_payload(str(file_id), language, expected_speakers,
+                                                               self.vocabulary),
                                                timeout=JOB_TIMEOUT),
                              self.retry_attempts, on_retry=self._retry_notice(progress_cb),
                              sleeper=self.sleeper, cancelled=self.cancelled)

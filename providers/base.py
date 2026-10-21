@@ -148,6 +148,26 @@ def emit_progress(progress_cb: ProgressCallback | None, message: str, fraction: 
         progress_cb(message, fraction)
 
 
+VOCABULARY_LIMIT = 100
+VOCABULARY_TERM_LIMIT = 60
+
+
+def vocabulary_terms(raw: Any) -> list[str]:
+    """Names and terms the researcher listed, one per comma or line, cleaned and capped.
+
+    The cap keeps the request inside what both services accept; a list that long has
+    stopped being a few hard words and become a dictionary, which helps nobody.
+    """
+    if isinstance(raw, str): pieces = raw.replace("\n", ",").replace(";", ",").split(",")
+    else: pieces = [str(item) for item in (raw or [])]
+    seen: set[str] = set(); terms: list[str] = []
+    for piece in pieces:
+        term = " ".join(piece.split())[:VOCABULARY_TERM_LIMIT]
+        if term and term.casefold() not in seen:
+            seen.add(term.casefold()); terms.append(term)
+    return terms[:VOCABULARY_LIMIT]
+
+
 def speaker_label(number: Any) -> str:
     """A global, readable label for a speaker the provider numbered."""
     try: return f"Speaker {int(number) + 1}"

@@ -344,7 +344,9 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
               on_selection_comment:Callable[[int,int,int],None]|None=None,
               on_clear_marks:Callable[[int,int,int],None]|None=None,
               on_drop_mark:Callable[[int,object],None]|None=None,
-              highlight_labels:list[str]|None=None)->ft.Control:
+              highlight_labels:list[str]|None=None,
+              on_step:Callable[[int],None]|None=None,
+              on_delete:Callable[[int],None]|None=None)->ft.Control:
     """One turn, shown once.
 
     The panel holds a single text surface. It is the editor by default and the clickable
@@ -354,6 +356,12 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
     """
     def heading(title:str)->ft.Control:
         actions:list[ft.Control]=[]
+        # The arrows Ctrl+Up and Ctrl+Down already were, where a mouse can find them.
+        if on_step is not None and index is not None and index<len(state.transcript_segments):
+            actions.append(icon_button(ft.Icons.KEYBOARD_ARROW_UP,s.TURN_PREVIOUS,
+                lambda e:on_step(-1),size=17,disabled=index<=0))
+            actions.append(icon_button(ft.Icons.KEYBOARD_ARROW_DOWN,s.TURN_NEXT,
+                lambda e:on_step(1),size=17,disabled=index>=len(state.transcript_segments)-1))
         if on_locate is not None:
             actions.append(icon_button(ft.Icons.MY_LOCATION,s.INSPECTOR_LOCATE,
                 lambda e:on_locate(),size=15))
@@ -488,6 +496,10 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
         row.append(icon_button(ft.Icons.COMMENT if carries else ft.Icons.ADD_COMMENT_OUTLINED,
             s.NOTE_PRESENT if carries else s.NOTE_ADD,lambda e:on_toggle_note(),
             color=t.primary() if carries else None))
+    if on_delete is not None:
+        # Last in the row and in the error colour: rare, and it should look it.
+        row.append(icon_button(ft.Icons.DELETE_OUTLINE,s.TURN_DELETE,lambda e:on_delete(index),
+            color=t.error()))
     occasional.append(ft.Row(row,spacing=t.S4,vertical_alignment=ft.CrossAxisAlignment.CENTER))
     # Labelled, not a third icon in the row above: it only appears on a turn that has been
     # changed, and on that turn it is worth being able to read what it does.

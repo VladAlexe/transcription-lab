@@ -120,6 +120,8 @@ class CheckedAndCorrectedTests(unittest.TestCase):
         app.commit_correction = lambda index=None: main.DesktopApp.commit_correction(app, index)
         app.set_checked = lambda index, value: main.DesktopApp.set_checked(app, index, value)
         app.reveal_turn = lambda index, allow_page_change=True: True
+        app._save_project = noop
+        app.save_quietly = lambda: main.DesktopApp.save_quietly(app)
         return app
 
     def test_ticking_checked_keeps_the_sentence_in_the_box(self) -> None:
@@ -157,6 +159,25 @@ class CheckedAndCorrectedTests(unittest.TestCase):
 class AutosaveTests(unittest.TestCase):
     def app(self, folder: str | None):
         return CheckedAndCorrectedTests.app(CheckedAndCorrectedTests(), folder)
+
+    def test_control_enter_writes_the_file_at_once_and_can_still_be_undone(self) -> None:
+        """Ctrl+Enter saves as Ctrl+S does, even inside the autosave interval."""
+        import json, main
+        with tempfile.TemporaryDirectory() as folder:
+            app = self.app(folder, )
+            app.select_segment = lambda index: setattr(app, "selected_segment", index)
+            written = Path(folder) / "study.transcript.json"
+            main.DesktopApp.mark_and_advance(app)                 # turn 0, written
+            app.field.value = "Turn one, corrected."
+            main.DesktopApp.mark_and_advance(app)                 # turn 1, inside the interval
+            saved = json.loads(written.read_text(encoding="utf-8-sig"))
+            texts = [item.get("corrected_text") for item in saved["segments"]]
+            self.assertIn("Turn one, corrected.", texts, "the second correction is on disk")
+            self.assertFalse(app.controller.state.dirty)
+            app.controller.state.history.undo()
+            segment = app.controller.state.transcript_segments[1]
+            self.assertNotEqual(segment.text, "Turn one, corrected.", "and Ctrl+Z still takes it back")
+            self.assertFalse(segment.checked)
 
     def test_marking_a_turn_writes_the_project_back(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

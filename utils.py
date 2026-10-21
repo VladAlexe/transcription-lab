@@ -40,6 +40,26 @@ def write_text(path: str, data: str) -> None:
     write_bytes(path, data.encode("utf-8-sig"))
 
 
+def log_path() -> Path:
+    root=Path(os.environ.get("LOCALAPPDATA",Path.home()))/"TranscriereInterviuri"
+    root.mkdir(parents=True,exist_ok=True);return root/"transcription.log"
+
+
+def append_log(line: str) -> None:
+    """One timestamped line in the transcription log. Never raises: a log must not be the
+    reason a transcription fails."""
+    try:
+        from datetime import datetime
+        path=log_path()
+        # Kept small: once past 1 MB the older half goes.
+        if path.is_file() and path.stat().st_size>1_000_000:
+            text=path.read_text(encoding="utf-8",errors="replace"); path.write_text(text[len(text)//2:],encoding="utf-8")
+        with path.open("a",encoding="utf-8") as stream:
+            stream.write(f"{datetime.now().isoformat(timespec='seconds')}  {line}\n")
+    except Exception:
+        pass
+
+
 def load_json(path: str) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8-sig") as stream: return json.load(stream)
 

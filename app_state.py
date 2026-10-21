@@ -40,6 +40,9 @@ class PreparationSettings:
     # recorded in the document's own metadata, so a transcript passed to a colleague says
     # whose corrections it carries instead of being signed by the word "Reviewer".
     reviewer: str = ""
+    # Names, places and project terms, comma separated, sent to Gladia and Soniox so they
+    # spell them as the study does rather than as the nearest word they already know.
+    vocabulary: str = ""
 
 
 @dataclass
@@ -126,7 +129,11 @@ class AppState:
 
     def cleanup_temporary(self) -> None:
         if self.temporary_directory:
-            self.temporary_directory.cleanup(); self.temporary_directory = None
+            # A cancelled run may still hold its upload copy open; on Windows that file
+            # cannot be deleted yet, and that must not stop the next run from starting.
+            try: self.temporary_directory.cleanup()
+            except OSError: pass
+            self.temporary_directory = None
         self.preview_cache.clear(); self.generated_chunks.clear()
 
     def reset(self) -> None:
