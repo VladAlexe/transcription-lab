@@ -122,3 +122,62 @@ class UnclearTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewSpeakerTests(unittest.TestCase):
+    def test_a_new_name_becomes_a_new_speaker_and_undo_removes_it(self) -> None:
+        controller = AppController(state())
+        key = controller.new_speaker(2, "Participant 4")
+        self.assertEqual(controller.state.transcript_segments[2].speaker_id, key)
+        self.assertEqual(controller.state.speaker_mapping[key], "Participant 4")
+        controller.state.history.undo()
+        self.assertNotIn(key, controller.state.speaker_mapping)
+        self.assertNotEqual(controller.state.transcript_segments[2].speaker_id, key)
+
+    def test_a_name_already_in_use_goes_to_that_speaker(self) -> None:
+        controller = AppController(state())
+        controller.state.speaker_mapping = {"SPEAKER_0": "Moderator", "SPEAKER_1": "SPEAKER_1"}
+        self.assertEqual(controller.new_speaker(1, " moderator "), "SPEAKER_0")
+        self.assertEqual(len(controller.state.speaker_mapping), 2)
+
+
+class SplitTests(unittest.TestCase):
+    def test_the_text_and_the_time_are_cut_at_the_cursor(self) -> None:
+        controller = AppController(state())
+        item = controller.state.transcript_segments[1]          # 10 s to 18 s
+        item.corrected_text = "First voice here. Second voice there."
+        cut = item.text.index("Second")
+        self.assertTrue(controller.split_segment(1, cut))
+        first, second = controller.state.transcript_segments[1:3]
+        self.assertEqual(first.text, "First voice here.")
+        self.assertEqual(second.text, "Second voice there.")
+        self.assertEqual(first.absolute_start, 10)
+        self.assertEqual(second.absolute_end, 18)
+        self.assertAlmostEqual(first.absolute_end, second.absolute_start)
+        self.assertTrue(10 < first.absolute_end < 18)
+        self.assertEqual(len(controller.state.transcript_segments), 7)
+
+    def test_marks_follow_their_half(self) -> None:
+        controller = AppController(state())
+        item = controller.state.transcript_segments[1]
+        item.corrected_text = "First voice here. Second voice there."
+        at = item.text.index("there")
+        item.annotations = an.add([], at, at + 5, item.text, an.UNCLEAR)
+        controller.split_segment(1, item.text.index("Second"))
+        second = controller.state.transcript_segments[2]
+        mark = second.annotations[0]
+        self.assertEqual(second.text[mark.start:mark.end], "there")
+
+    def test_undo_puts_the_one_turn_back(self) -> None:
+        controller = AppController(state())
+        original = controller.state.transcript_segments[1]
+        controller.split_segment(1, 3)
+        controller.state.history.undo()
+        self.assertIs(controller.state.transcript_segments[1], original)
+        self.assertEqual(len(controller.state.transcript_segments), 6)
+
+    def test_a_cursor_at_either_end_splits_nothing(self) -> None:
+        controller = AppController(state())
+        text = controller.state.transcript_segments[1].text
+        self.assertFalse(controller.split_segment(1, 0))
+        self.assertFalse(controller.split_segment(1, len(text)))

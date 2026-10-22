@@ -249,7 +249,9 @@ class KeyRoutingTests(_Press, unittest.TestCase):
     """`on_key` is called with a real key name and has to route it, or deliberately not."""
 
     def test_the_plain_keys(self) -> None:
-        self.assertEqual(self.press(" "), ["toggle"])
+        # Space is a space: it never plays or pauses, typing or not.
+        self.assertEqual(self.press(" "), [])
+        self.assertEqual(self.press("Space"), [])
         self.assertEqual(self.press("Arrow Left"), ["skip_audio"])
         self.assertEqual(self.press("Arrow Right"), ["skip_audio"])
         self.assertEqual(self.press("Arrow Up"), ["step_turn"])

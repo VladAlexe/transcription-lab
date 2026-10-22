@@ -274,26 +274,37 @@ def word_ribbon(item:TranscriptSegment,on_seek:Callable[[float],None])->ft.Contr
         padding=t.S12,border_radius=t.R_SM,bgcolor=t.surface_variant())
 
 
+NEW_SPEAKER="__new_speaker__"
+
+
 def _reassign_dropdown(item:TranscriptSegment,state:AppState,index:int,
                        on_reassign:Callable[[int,str],None]|None,
-                       on_typing:Callable[[bool],None]|None)->ft.Control:
+                       on_typing:Callable[[bool],None]|None,
+                       on_new_speaker:Callable[[int],None]|None=None)->ft.Control:
     """The turn was actually someone else: a compact select, applied on choice.
 
     It sits in the inspector action row rather than opening anything of its own. Moving one
     turn is a small correction and should cost one click, not a panel.
     """
     speakers=sorted({turn.speaker_id for turn in state.transcript_segments})
+    options=[ft.DropdownOption(key=speaker,text=state.speaker_mapping.get(speaker,speaker))
+             for speaker in speakers]
+    # Someone the diarization never found: named here, without leaving the turn.
+    if on_new_speaker is not None: options.append(ft.DropdownOption(key=NEW_SPEAKER,text=s.REASSIGN_NEW))
+    def chosen(event)->None:
+        value=event.control.value or item.speaker_id
+        if value==NEW_SPEAKER and on_new_speaker is not None: on_new_speaker(index)
+        elif on_reassign is not None: on_reassign(index,value)
     return ft.Dropdown(value=item.speaker_id,expand=True,dense=True,
         height=t.FIELD_HEIGHT_DENSE,text_size=t.TYPE_SECONDARY,
         hint_text=s.REASSIGN_LABEL,tooltip=s.REASSIGN_TOOLTIP,
         border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
         color=t.on_surface(),content_padding=ft.Padding(t.S12,t.S4,t.S8,t.S4),
-        disabled=on_reassign is None or len(speakers)<2,
-        options=[ft.DropdownOption(key=speaker,
-            text=state.speaker_mapping.get(speaker,speaker)) for speaker in speakers],
+        disabled=on_reassign is None or (len(speakers)<2 and on_new_speaker is None),
+        options=options,
         on_focus=(lambda e:on_typing(True)) if on_typing else None,
         on_blur=(lambda e:on_typing(False)) if on_typing else None,
-        on_select=(lambda e:on_reassign(index,e.control.value or item.speaker_id)) if on_reassign else None)
+        on_select=chosen if on_reassign else None)
 
 
 def mode_switch(words_mode:bool,on_words_mode:Callable[[],None])->ft.Control:
@@ -346,7 +357,9 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
               on_drop_mark:Callable[[int,object],None]|None=None,
               highlight_labels:list[str]|None=None,
               on_step:Callable[[int],None]|None=None,
-              on_delete:Callable[[int],None]|None=None)->ft.Control:
+              on_delete:Callable[[int],None]|None=None,
+              on_new_speaker:Callable[[int],None]|None=None,
+              on_split:Callable[[int],None]|None=None)->ft.Control:
     """One turn, shown once.
 
     The panel holds a single text surface. It is the editor by default and the clickable
@@ -462,6 +475,8 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
     committing=ft.Row([save,
         icon_button(ft.Icons.SCHEDULE,s.INSERT_TIMESTAMP,
             (lambda e:on_stamp()) if on_stamp else None,disabled=on_stamp is None or words_mode),
+        icon_button(ft.Icons.CALL_SPLIT,s.SPLIT_TURN,
+            (lambda e:on_split(index)) if on_split else None,disabled=on_split is None or words_mode),
         icon_button(ft.Icons.RESTORE,s.REVERT_CORRECTION,lambda e:on_revert(index))],
         spacing=t.S4,vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
@@ -490,7 +505,7 @@ def inspector(state:AppState,index:int|None,on_save:Callable[[int,str],None],on_
     occasional:list[ft.Control]=[]
     row:list[ft.Control]=[
         ft.Text(s.REASSIGN_LABEL,size=t.TYPE_CAPTION,color=t.muted(),no_wrap=True),
-        _reassign_dropdown(item,state,index,on_reassign,on_typing)]
+        _reassign_dropdown(item,state,index,on_reassign,on_typing,on_new_speaker)]
     if on_toggle_note is not None:
         carries=bool((item.note or "").strip())
         row.append(icon_button(ft.Icons.COMMENT if carries else ft.Icons.ADD_COMMENT_OUTLINED,

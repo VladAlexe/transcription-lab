@@ -206,7 +206,7 @@ class ReassignTests(unittest.TestCase):
                                          for x in (c.controls or []))]
         self.assertEqual(len(saving), 1)
         beside = [c.tooltip for c in saving[0].controls if isinstance(c, ft.IconButton)]
-        self.assertEqual(beside, [s.INSERT_TIMESTAMP, s.REVERT_CORRECTION])
+        self.assertEqual(beside, [s.INSERT_TIMESTAMP, s.SPLIT_TURN, s.REVERT_CORRECTION])
         # Directly under the text surface, with nothing in between.
         self.assertEqual(panel.controls.index(saving[0]),
                          panel.controls.index(self.surface(panel)) + 1)

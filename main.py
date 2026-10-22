@@ -37,6 +37,13 @@ from flet.controls.core.text import TextSelection
 from utils import append_log,human_size,load_preferences,save_preferences
 from views import export_view,recording_view,settings_view,speakers_view,transcription_view,welcome_view
 
+# No automatic page update after events. Only the page is an "isolated" control in Flet, so
+# after any event whose handler did not call update() itself — every key press reaching the
+# page listener, every keystroke in a text box, every focus change — Flet diffed the ENTIRE
+# page, all several hundred transcript rows of it. That was the lag on Ctrl+W and while
+# typing. Every handler in this application updates exactly what it changed.
+ft.context.disable_auto_update()
+
 
 class DesktopApp:
     def __init__(self,page:ft.Page):
@@ -401,7 +408,7 @@ class DesktopApp:
         state=self.controller.state
         return review_progress.visible_order(state.transcript_segments,state.show_only_unchecked)
 
-    def reveal_turn(self,index:int|None,allow_page_change:bool=True)->bool:
+    def reveal_turn(self,index:int|None,allow_page_change:bool=True,instant:bool=False)->bool:
         """Bring a turn into view in the list: right page, scrolled to it. True if shown.
 
         A row's place in the list is its position in the visible order, NOT its transcript
@@ -415,10 +422,10 @@ class DesktopApp:
         try: position=order.index(index)
         except ValueError:
             return False                       # filtered out of the list entirely
-        self.scroll_to_row(position)
+        self.scroll_to_row(position,0 if instant else 250)
         return True
 
-    def scroll_to_row(self,position:int)->None:
+    def scroll_to_row(self,position:int,duration:int=250)->None:
         """Scroll the list to a row, one row of context above it.
 
         `ListView.scroll_to` is a coroutine. Called without awaiting it, it builds a
@@ -437,7 +444,7 @@ class DesktopApp:
             # the page asks the client to animate something it cannot find, so a scroll
             # that has been overtaken is dropped rather than sent.
             if self.refs.get("listing") is not listing: return
-            try: await listing.scroll_to(offset=target,duration=250)
+            try: await listing.scroll_to(offset=target,duration=duration)
             except Exception as exc: print(f"[scroll] {type(exc).__name__}: {exc}",flush=True)
 
         try: self.page.run_task(run)
@@ -514,7 +521,7 @@ class DesktopApp:
             self.set_note,self.note_open,self.toggle_note,
             self.mark_selection,self.comment_on_selection,self.clear_marks,self.drop_mark,
             self.controller.state.settings.highlight_labels,
-            self.step_turn,self.delete_turn)
+            self.step_turn,self.delete_turn,self.ask_new_speaker,self.split_turn)
 
     # ── Marking a phrase ─────────────────────────────────────────────────────
     # Bold, one of three highlighters, and a comment on the selected words. All three reach
@@ -545,7 +552,8 @@ class DesktopApp:
         quote=text[low:high]
         box=ft.TextField(multiline=True,min_lines=2,max_lines=4,autofocus=True,
             text_size=t.TYPE_BODY,border_radius=t.R_SM,border_color=t.outline(),
-            focused_border_color=t.primary(),color=t.on_surface())
+            focused_border_color=t.primary(),color=t.on_surface(),
+            on_focus=lambda e:self.set_typing(True),on_blur=lambda e:self.set_typing(False))
         box.on_change=lambda e:setattr(box,"value",e.control.value)
         def keep(event:ft.Event)->None:
             self.page.pop_dialog()
@@ -910,11 +918,12 @@ class DesktopApp:
             return
 
         # Everything below is a character a text field would want, so it yields to typing.
-        # Space is deliberately NOT offered with Ctrl: Flet cannot consume a key, so the
-        # field receives it too and a space lands in the sentence. Ctrl+W is the pause key.
+        # Space is not play/pause at all any more. "Not while typing" depended on every text
+        # box reporting its focus, and the comment dialog did not — so a space in a comment
+        # started the audio. Ctrl+Space is no better: Flet cannot consume a key, so the box
+        # would still receive the space. Ctrl+W and F4 are the pause keys.
         if self.typing or not reviewing: return
-        if key in (" ","Space"): self.play_pause()
-        elif key in self.LEFT_KEYS: self.skip_audio(-float(t.SKIP_SECONDS))
+        if key in self.LEFT_KEYS: self.skip_audio(-float(t.SKIP_SECONDS))
         elif key in self.RIGHT_KEYS: self.skip_audio(float(t.SKIP_SECONDS))
         elif key in self.UP_KEYS: self.step_turn(-1)
         elif key in self.DOWN_KEYS: self.step_turn(1)
@@ -1123,6 +1132,11 @@ class DesktopApp:
         shell=app_shell(nav,top,workspace,inspector,layout,self.refs,not fills,footer,
             floating or None,band)
         self.page.controls.clear();self.page.add(shell);self.page.update()
+        # A rebuilt list starts at the top. Deleting a turn, undoing, splitting, moving a
+        # turn to someone else — each used to throw the researcher back to turn one. The
+        # open turn is where they were, so that is where the list goes back to.
+        if fills and self.selected_segment is not None:
+            self.reveal_turn(self.selected_segment,instant=True)
 
     def screen_name(self)->str:
         if self.show_home:return "home"
@@ -1428,6 +1442,43 @@ class DesktopApp:
         self.render()
         notification(self.page,s.MERGE_DONE.format(count=moved,target=name))
         self.autosave()
+    def ask_new_speaker(self,index:int)->None:
+        """Name a speaker who is not in the list, and give them this turn."""
+        box=ft.TextField(autofocus=True,hint_text=s.NEW_SPEAKER_HINT,text_size=t.TYPE_BODY,
+            border_radius=t.R_SM,border_color=t.outline(),focused_border_color=t.primary(),
+            color=t.on_surface(),
+            on_focus=lambda e:self.set_typing(True),on_blur=lambda e:self.set_typing(False))
+        box.on_change=lambda e:setattr(box,"value",e.control.value)
+        def apply(event=None)->None:
+            self.page.pop_dialog()
+            key=self.controller.new_speaker(index,box.value or "")
+            if key is None: self.refresh_inspector();return
+            name=self.controller.state.speaker_mapping.get(key,key)
+            self.render()
+            notification(self.page,s.REASSIGN_DONE.format(speaker=name))
+            self.autosave()
+        def cancel(event=None)->None:
+            self.page.pop_dialog();self.refresh_inspector()   # the select still shows "New…"
+        box.on_submit=apply
+        modal_dialog(self.page,s.NEW_SPEAKER_TITLE,box,
+            [tertiary_button(s.DISCARD,cancel),primary_button(s.NEW_SPEAKER_APPLY,apply)],
+            ft.Icons.PERSON_ADD_ALT)
+
+    def split_turn(self,index:int)->None:
+        """Cut the open turn at the cursor; the second half opens, ready for its speaker."""
+        self.commit_correction(index)
+        field=self.refs.get("inspector_field")
+        start,_=self.live_selection()
+        if not start and field is not None:
+            start=int(getattr(getattr(field,"selection",None),"base_offset",0) or 0)
+        if not self.controller.split_segment(index,start):
+            notification(self.page,s.SPLIT_NEEDS_CARET);return
+        self.selected_segment=index+1
+        self.active=playback_sync.Position()
+        self.render()
+        notification(self.page,s.SPLIT_DONE)
+        self.autosave()
+
     def delete_turn(self,index:int)->None:
         """Take a turn out of the transcript; the open turn becomes the one after it."""
         if not self.controller.delete_segment(index): return

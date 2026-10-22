@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, tempfile, threading
+import dataclasses, json, tempfile, threading
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Any
@@ -247,6 +247,80 @@ class AppController:
         self.state.history.record(s.UNDO_MARK.format(index=index+1),
             lambda item=segment,value=was_marked:setattr(item,"annotations",value))
         segment.annotations=remaining; self.state.dirty=True
+        return True
+
+    def new_speaker(self,index:int,name:str)->str|None:
+        """Give one turn to a speaker the diarization never found, by name.
+
+        A name already in use goes to that speaker instead of making a second one under the
+        same name. Returns the speaker the turn now belongs to, or None.
+        """
+        segments=self.state.transcript_segments; name=" ".join((name or "").split())[:80]
+        if not name or not (0<=index<len(segments)): return None
+        mapping=self.state.speaker_mapping
+        labels={segment.speaker_id for segment in segments}|set(mapping)
+        existing=next((key for key in sorted(labels)
+                       if mapping.get(key,key).strip().casefold()==name.casefold()),None)
+        if existing is not None:
+            self.reassign_turn(index,existing); return existing
+        number=1
+        while f"Speaker {number}" in labels: number+=1
+        key=f"Speaker {number}"
+        with self.state.history.group(s.UNDO_NEW_SPEAKER.format(index=index+1)):
+            mapping[key]=name
+            self.state.history.record(s.UNDO_NEW_SPEAKER.format(index=index+1),
+                                      lambda label=key:mapping.pop(label,None))
+            self.reassign_turn(index,key)
+        self.state.dirty=True
+        return key
+
+    def split_segment(self,index:int,position:int)->bool:
+        """Cut one turn in two at a character position; the second part becomes a new turn.
+
+        For the moment two voices were transcribed as one. The time is split where the
+        words were timed when the provider timed them, and in proportion to the text when it
+        did not. Both halves start as the same speaker; reassigning the second is the point.
+        """
+        segments=self.state.transcript_segments
+        if not (0<=index<len(segments)): return False
+        item=segments[index]; text=item.text
+        position=max(0,min(int(position),len(text)))
+        left,right=text[:position].rstrip(),text[position:].strip()
+        if not left or not right: return False
+        start,end=item.absolute_start,item.absolute_end
+        words=list(item.words or []); count=len(left.split())
+        if words and 0<count<len(words): cut=words[count].start
+        else: cut=start+(end-start)*(len(left)/max(1,len(left)+len(right)))
+        cut=min(max(cut,start),end)
+        shift=len(text)-len(text[position:].lstrip())        # where `right` begins in `text`
+        def part(body:str,a:float,b:float,marks:list,moved:list)->TranscriptSegment:
+            return dataclasses.replace(item,original_text=body,corrected_text=None,
+                absolute_start=a,absolute_end=b,
+                local_start=item.local_start+(a-start),local_end=item.local_start+(b-start),
+                words=moved,annotations=marks,checked=False,note=item.note if a==start else "")
+        first=part(left,start,cut,
+            [dataclasses.replace(m,end=min(m.end,len(left)),quote=left[m.start:min(m.end,len(left))])
+             for m in item.annotations if m.start<len(left)],
+            [w for w in words if w.start<cut])
+        second=part(right,cut,end,
+            [dataclasses.replace(m,start=max(0,m.start-shift),end=m.end-shift,
+                                 quote=right[max(0,m.start-shift):m.end-shift])
+             for m in item.annotations if m.end>shift and m.end-shift>0],
+            [w for w in words if w.start>=cut])
+        def restore(original=item,a=first,b=second)->None:
+            current=self.state.transcript_segments
+            at=next((i for i,s_ in enumerate(current) if s_ is a),None)
+            if at is None: return
+            if at+1<len(current) and current[at+1] is b: del current[at+1]
+            current[at]=original
+            if self.state.last_reviewed_index is not None and self.state.last_reviewed_index>at:
+                self.state.last_reviewed_index-=1
+        self.state.history.record(s.UNDO_SPLIT.format(index=index+1),restore)
+        segments[index:index+1]=[first,second]
+        if self.state.last_reviewed_index is not None and self.state.last_reviewed_index>index:
+            self.state.last_reviewed_index+=1
+        self.state.last_replacement=None
+        self.state.dirty=True
         return True
 
     def delete_segment(self,index:int)->bool:

@@ -126,8 +126,8 @@ HELP_SHORTCUTS = ("Ctrl+S — save the correction you are typing, and the projec
                   "Ctrl+Left / Ctrl+Right — {seconds} seconds back or forward, anywhere.",
                   "Ctrl+Up / Ctrl+Down — the previous or the next turn, anywhere. The arrows "
                   "beside the open turn do the same.",
-                  "Space and the plain arrows do the same, but only when no text field "
-                  "has focus.",
+                  "The plain arrows do the same, but only when no text field has focus. "
+                  "Space is never play/pause: it is a space, wherever you are typing.",
                   "Ctrl+P — play the open turn from its start. “Turn by turn” in the player "
                   "makes every Play do that, and stop where the turn ends.",
                   "Ctrl+U — mark the selected words as unclear: a wavy underline on screen and "
@@ -305,6 +305,15 @@ INSERT_TIMESTAMP = "Insert timestamp"
 REASSIGN_LABEL = "Speaker"
 REASSIGN_TOOLTIP = "Move this turn to another speaker"
 REASSIGN_DONE = "Turn moved to {speaker}."
+REASSIGN_NEW = "+ New speaker…"
+NEW_SPEAKER_TITLE = "Who is speaking in this turn?"
+NEW_SPEAKER_HINT = "A name, e.g. Participant 4"
+NEW_SPEAKER_APPLY = "Use this name"
+UNDO_NEW_SPEAKER = "naming a new speaker on turn {index}"
+SPLIT_TURN = "Split here: the text after the cursor becomes a new turn"
+SPLIT_NEEDS_CARET = "Put the cursor where the second voice starts, then split."
+SPLIT_DONE = "Turn split in two. Pick the speaker for the second part."
+UNDO_SPLIT = "splitting turn {index}"
 MERGE_INTO = "Merge into another speaker"
 MERGE_MENU_ITEM = "Merge into {speaker}"
 MERGE_TITLE = "Merge two speakers"

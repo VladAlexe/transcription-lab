@@ -46,7 +46,7 @@ class RevealTests(unittest.TestCase):
                               refs={"visible_order": order, "listing": object()},
                               render=lambda: rendered.append(True))
         app.current_order = lambda: main.DesktopApp.current_order(app)
-        app.scroll_to_row = lambda position: scrolled.append(position)
+        app.scroll_to_row = lambda position, duration=250: scrolled.append(position)
         app.reveal_turn = lambda index, allow=True: main.DesktopApp.reveal_turn(app, index, allow)
         app.scrolled, app.rendered, app.order = scrolled, rendered, order
         return app

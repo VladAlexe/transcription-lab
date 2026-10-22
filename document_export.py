@@ -8,7 +8,7 @@ import strings as s
 from speaker_reconciliation import apply_speaker_mapping
 from transcription import MODEL
 
-APP_VERSION = "1.2.6"
+APP_VERSION = "1.2.7"
 
 
 def format_timestamp(seconds: float) -> str:
